@@ -10,13 +10,12 @@ info:
     GitHub issues (`OfficerYoda/basf-hackathon`). Each operation is tagged with its
     implementation status:
 
-    - **✅ Implemented** — issue #1 (Mitarbeiter und Skills verwalten), matches
-      `backend/main.go` as merged.
-    - **🚧 Planned** — issues #2 (Wissensartikel veröffentlichen), #3 (Dateien an
-      Artikel anhängen), #4 (Mitarbeiter und Wissen durchsuchen). Shape is derived
-      from each issue's acceptance criteria; no server code exists yet, so field
-      names and error codes for these sections are a proposed contract, not an
-      observed one.
+    - **✅ Implemented** — issues #1 (Mitarbeiter und Skills verwalten) and #2
+      (Wissensartikel veröffentlichen), matches `backend/main.go` as merged.
+    - **🚧 Planned** — issues #3 (Dateien an Artikel anhängen) and #4 (Mitarbeiter
+      und Wissen durchsuchen). Shape is derived from each issue's acceptance
+      criteria; no server code exists yet, so field names and error codes for
+      these sections are a proposed contract, not an observed one.
 
     All endpoints exchange JSON (`application/json`) and report errors as
     `{"error": "human-readable message"}`, except file upload/download on
@@ -34,7 +33,7 @@ tags:
   - name: Employees
     description: "✅ Implemented (issue #1). Mitarbeiter mit Kontaktdaten und selbst eingeschätzten Skills."
   - name: Articles
-    description: "🚧 Planned (issue #2). Markdown-Wissensartikel mit Skills und Mitwirkenden."
+    description: "✅ Implemented (issue #2). Markdown-Wissensartikel mit Skills und Mitwirkenden."
   - name: Attachments
     description: "🚧 Planned (issue #3). Dateien, die zu einem Artikel gehören."
   - name: Search
@@ -163,7 +162,10 @@ paths:
     delete:
       tags: [Employees]
       summary: Delete an employee
-      description: "✅ Implemented. Cascades to the employee's skills."
+      description: |
+        ✅ Implemented. Cascades to the employee's skills. Rejected if the employee
+        is a contributor on any article — remove them from the article(s) first
+        (issue #2's article_contributors has `ON DELETE RESTRICT`).
       operationId: deleteEmployee
       responses:
         "204":
@@ -172,12 +174,20 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Employee is a contributor on at least one article.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "employee is referenced by an article"
 
   /api/articles:
     get:
       tags: [Articles]
       summary: List articles
-      description: "🚧 Planned (issue #2)."
+      description: "✅ Implemented (issue #2). Returns all articles ordered by id, each with its skills and contributors."
       operationId: listArticles
       responses:
         "200":
@@ -192,9 +202,12 @@ paths:
       tags: [Articles]
       summary: Publish an article
       description: |
-        🚧 Planned (issue #2). `skills` must reference existing skill names;
-        `contributor_ids` must reference existing employees. Authors and other
-        participants are not distinguished by role — all are "Mitwirkende".
+        ✅ Implemented (issue #2). `skills` must reference skill names already
+        present in the shared skill vocabulary (i.e. used by at least one
+        employee); `contributor_ids` must reference existing employees. Authors
+        and other participants are not distinguished by role — all are
+        "Mitwirkende". Request bodies are decoded strictly, same as employees
+        (unknown fields and trailing content rejected with 400, 1 MiB cap).
       operationId: createArticle
       requestBody:
         required: true
@@ -222,7 +235,7 @@ paths:
     get:
       tags: [Articles]
       summary: Get an article
-      description: "🚧 Planned (issue #2). Includes skills, contributors, and attachment metadata."
+      description: "✅ Implemented (issue #2). Includes skills and contributors; `attachments` is populated once issue #3 ships."
       operationId: getArticle
       responses:
         "200":
@@ -236,7 +249,7 @@ paths:
     put:
       tags: [Articles]
       summary: Replace an article
-      description: "🚧 Planned (issue #2). Full replace of title, description, content, skills, and contributors."
+      description: "✅ Implemented (issue #2). Full replace of title, description, content, skills, and contributors."
       operationId: updateArticle
       requestBody:
         required: true
@@ -263,8 +276,9 @@ paths:
       tags: [Articles]
       summary: Delete an article
       description: |
-        🚧 Planned (issue #2). Also deletes the article's stored attachment files,
-        so no orphaned files remain (issue #3's no-orphans requirement).
+        ✅ Implemented (issue #2). Cascades to the article's skill tags and
+        contributor links. Once issue #3 ships, this must also delete the
+        article's stored attachment files so none are orphaned.
       operationId: deleteArticle
       responses:
         "204":
@@ -539,19 +553,6 @@ components:
           default: []
           description: Skill names must be unique within the employee (case-insensitive, after lowercasing).
 
-    EmployeeSummary:
-      type: object
-      description: Minimal employee reference, used where an article credits a contributor.
-      properties:
-        id:
-          type: integer
-          format: int64
-        name:
-          type: string
-        email:
-          type: string
-          format: email
-
     ArticleInput:
       type: object
       required: [title, description, content]
@@ -562,9 +563,11 @@ components:
           example: Onboarding auf den neuen Deploy-Prozess
         description:
           type: string
+          minLength: 1
           example: Kurzüberblick über den neuen CI/CD-Ablauf.
         content:
           type: string
+          minLength: 1
           description: Markdown body.
           example: "## Übersicht\n\n..."
         skills:
@@ -572,7 +575,10 @@ components:
           items:
             type: string
           default: []
-          description: Names of existing skills to tag this article with. Lowercased before storage.
+          description: >
+            Names of skills already present in the shared skill vocabulary (i.e.
+            used by at least one employee). Lowercased before matching; an unknown
+            name is rejected with 400.
           example: [ci-cd, deployment]
         contributor_ids:
           type: array
@@ -604,11 +610,15 @@ components:
         contributors:
           type: array
           items:
-            $ref: "#/components/schemas/EmployeeSummary"
+            $ref: "#/components/schemas/Employee"
+          description: >
+            Full employee records (including their own skills) for each
+            contributor, not just a name/id reference.
         attachments:
           type: array
           items:
             $ref: "#/components/schemas/Attachment"
+          description: 🚧 Planned (issue #3) — not yet a field on the server's Article struct; absent from current responses.
         created_at:
           type: string
           format: date-time
