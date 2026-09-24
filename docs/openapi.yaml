@@ -6,16 +6,8 @@ info:
     (Artikel/Anhänge) im Unternehmen auffindbar. Begriffe folgen dem Glossar in
     `CONTEXT.md` (Mitarbeiter, Skill, Selbsteinschätzung, Artikel, Mitwirkender, Anhang).
 
-    This document specifies the **complete target API**, derived from the repo's
-    GitHub issues (`OfficerYoda/basf-hackathon`). Each operation is tagged with its
-    implementation status:
-
-    - **✅ Implemented** — issues #1 (Mitarbeiter und Skills verwalten) and #2
-      (Wissensartikel veröffentlichen), matches `backend/main.go` as merged.
-    - **🚧 Planned** — issues #3 (Dateien an Artikel anhängen) and #4 (Mitarbeiter
-      und Wissen durchsuchen). Shape is derived from each issue's acceptance
-      criteria; no server code exists yet, so field names and error codes for
-      these sections are a proposed contract, not an observed one.
+    This document specifies the implemented API derived from the repo's GitHub
+    issues (`OfficerYoda/basf-hackathon`).
 
     All endpoints exchange JSON (`application/json`) and report errors as
     `{"error": "human-readable message"}`, except file upload/download on
@@ -35,9 +27,9 @@ tags:
   - name: Articles
     description: "✅ Implemented (issue #2). Markdown-Wissensartikel mit Skills und Mitwirkenden."
   - name: Attachments
-    description: "🚧 Planned (issue #3). Dateien, die zu einem Artikel gehören."
+    description: "✅ Implemented (issue #3). Dateien, die zu einem Artikel gehören."
   - name: Search
-    description: "🚧 Planned (issue #4). Gemeinsame Suche über Mitarbeiter und Artikel."
+    description: "✅ Implemented (issue #4). Gemeinsame Suche über Mitarbeiter und Artikel."
 
 paths:
   /health:
@@ -187,11 +179,11 @@ paths:
     get:
       tags: [Articles]
       summary: List articles
-      description: "✅ Implemented (issue #2). Returns all articles ordered by id, each with its skills and contributors."
+      description: "✅ Implemented (issues #2 and #3). Returns all articles ordered by id, each with its skills, contributors, and attachments."
       operationId: listArticles
       responses:
         "200":
-          description: List of articles, each with its skills and contributors.
+          description: List of articles, each with its skills, contributors, and attachments.
           content:
             application/json:
               schema:
@@ -235,7 +227,7 @@ paths:
     get:
       tags: [Articles]
       summary: Get an article
-      description: "✅ Implemented (issue #2). Includes skills and contributors; `attachments` is populated once issue #3 ships."
+      description: "✅ Implemented (issues #2 and #3). Includes skills, contributors, and attachments."
       operationId: getArticle
       responses:
         "200":
@@ -244,6 +236,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Article"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -276,41 +270,26 @@ paths:
       tags: [Articles]
       summary: Delete an article
       description: |
-        ✅ Implemented (issue #2). Cascades to the article's skill tags and
-        contributor links. Once issue #3 ships, this must also delete the
-        article's stored attachment files so none are orphaned.
+        ✅ Implemented (issues #2 and #3). Cascades to the article's skill tags,
+        contributor links, attachment metadata, and stored attachment files.
       operationId: deleteArticle
       responses:
         "204":
           description: Article deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
 
   /api/articles/{articleId}/attachments:
     parameters:
       - $ref: "#/components/parameters/ArticleIdForAttachment"
-    get:
-      tags: [Attachments]
-      summary: List an article's attachments
-      description: "🚧 Planned (issue #3)."
-      operationId: listAttachments
-      responses:
-        "200":
-          description: Attachments for the article.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Attachment"
-        "404":
-          $ref: "#/components/responses/NotFound"
     post:
       tags: [Attachments]
       summary: Upload an attachment
       description: |
-        🚧 Planned (issue #3). Stores the file on a local volume and its metadata
-        (original filename, MIME type) in Postgres, linked to the article. No
+        ✅ Implemented (issue #3). Stores the file on a local volume and its
+        metadata in Postgres, linked to the article. No
         maximum upload size is enforced, per the product decision for this
         hackathon MVP. The stored filename is derived server-side so a client
         cannot escape the storage directory or overwrite an existing file.
@@ -335,7 +314,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Attachment"
         "400":
-          description: Missing or empty file part.
+          description: Missing file part or invalid multipart body.
           content:
             application/json:
               schema:
@@ -343,22 +322,14 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /api/articles/{articleId}/attachments/{attachmentId}:
+  /api/attachments/{id}:
     parameters:
-      - $ref: "#/components/parameters/ArticleIdForAttachment"
-      - name: attachmentId
-        in: path
-        required: true
-        description: Attachment id.
-        schema:
-          type: integer
-          format: int64
-          minimum: 1
+      - $ref: "#/components/parameters/AttachmentId"
     get:
       tags: [Attachments]
       summary: Download an attachment
       description: |
-        🚧 Planned (issue #3). Streams the stored file. The response `Content-Type`
+        ✅ Implemented (issue #3). Streams the stored file. The response `Content-Type`
         reflects the attachment's stored MIME type and `Content-Disposition`
         carries the original filename.
       operationId: downloadAttachment
@@ -366,12 +337,14 @@ paths:
         "200":
           description: File contents.
           content:
-            application/octet-stream:
+            "*/*":
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
-          description: Article or attachment not found.
+          description: Attachment not found.
           content:
             application/json:
               schema:
@@ -379,13 +352,15 @@ paths:
     delete:
       tags: [Attachments]
       summary: Delete an attachment
-      description: "🚧 Planned (issue #3). Removes both the stored file and its metadata; never leaves one without the other."
+      description: "✅ Implemented (issue #3). Removes both the stored file and its metadata; never leaves one without the other."
       operationId: deleteAttachment
       responses:
         "204":
           description: Attachment deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
-          description: Article or attachment not found.
+          description: Attachment not found.
           content:
             application/json:
               schema:
@@ -396,7 +371,7 @@ paths:
       tags: [Search]
       summary: Search employees and articles
       description: |
-        🚧 Planned (issue #4). Free text (`q`) matches employee names, and article
+        ✅ Implemented (issue #4). Free text (`q`) matches employee names, and article
         titles or markdown content. Skill filters (`skills`) narrow the result to
         entries holding all (`mode=and`) or at least one (`mode=or`) of the given
         skills; skill names are matched case-insensitively against their
@@ -405,7 +380,7 @@ paths:
         `skills` is given).
 
         Deterministic behavior for edge cases: omitting both `q` and `skills`
-        returns empty `employees` and `articles` arrays rather than a full dump.
+        returns all employees and articles.
         An empty `skills` list is treated as "no skill filter".
       operationId: search
       parameters:
@@ -418,9 +393,9 @@ paths:
         - name: skills
           in: query
           required: false
-          description: Comma-separated skill names to filter by.
+          description: Repeat this parameter for each skill name to filter by.
           style: form
-          explode: false
+          explode: true
           schema:
             type: array
             items:
@@ -433,7 +408,7 @@ paths:
           schema:
             type: string
             enum: [and, or]
-            default: or
+            default: and
       responses:
         "200":
           description: Matches, grouped by type.
@@ -477,6 +452,15 @@ components:
         type: integer
         format: int64
         minimum: 1
+    AttachmentId:
+      name: id
+      in: path
+      required: true
+      description: Attachment id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
 
   responses:
     BadRequest:
@@ -503,6 +487,7 @@ components:
 
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
@@ -592,6 +577,7 @@ components:
 
     Article:
       type: object
+      required: [id, title, description, content, skills, contributors, attachments, created_at, updated_at]
       properties:
         id:
           type: integer
@@ -618,7 +604,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Attachment"
-          description: 🚧 Planned (issue #3) — not yet a field on the server's Article struct; absent from current responses.
+          description: Attachments ordered by id.
         created_at:
           type: string
           format: date-time
@@ -630,6 +616,7 @@ components:
 
     Attachment:
       type: object
+      required: [id, article_id, filename, mime_type, size_bytes, created_at]
       properties:
         id:
           type: integer
@@ -649,6 +636,8 @@ components:
         size_bytes:
           type: integer
           format: int64
+          minimum: 0
+          readOnly: true
           description: Size of the stored file in bytes.
           example: 48213
         created_at:
@@ -658,6 +647,7 @@ components:
 
     SearchResponse:
       type: object
+      required: [employees, articles]
       properties:
         employees:
           type: array

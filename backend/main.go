@@ -48,11 +48,13 @@ type Article struct {
 }
 
 type Attachment struct {
-	ID         int64  `json:"id"`
-	ArticleID  int64  `json:"article_id"`
-	Filename   string `json:"filename"`
-	MIMEType   string `json:"mime_type"`
-	StoredName string `json:"-"`
+	ID         int64     `json:"id"`
+	ArticleID  int64     `json:"article_id"`
+	Filename   string    `json:"filename"`
+	MIMEType   string    `json:"mime_type"`
+	SizeBytes  int64     `json:"size_bytes"`
+	CreatedAt  time.Time `json:"created_at"`
+	StoredName string    `json:"-"`
 }
 
 type ArticleInput struct {
@@ -205,8 +207,12 @@ CREATE TABLE IF NOT EXISTS attachments (
     article_id BIGINT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
     mime_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     stored_name TEXT NOT NULL UNIQUE
-);`
+);
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS size_bytes BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();`
 
 func (s *postgresStore) Healthy(ctx context.Context) error { return s.db.PingContext(ctx) }
 
@@ -424,7 +430,7 @@ func (s *postgresStore) loadArticleReferences(ctx context.Context, article *Arti
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	rows, err = s.db.QueryContext(ctx, `SELECT id, article_id, filename, mime_type, stored_name FROM attachments WHERE article_id = $1 ORDER BY id`, article.ID)
+	rows, err = s.db.QueryContext(ctx, `SELECT id, article_id, filename, mime_type, size_bytes, created_at, stored_name FROM attachments WHERE article_id = $1 ORDER BY id`, article.ID)
 	if err != nil {
 		return err
 	}
@@ -432,7 +438,7 @@ func (s *postgresStore) loadArticleReferences(ctx context.Context, article *Arti
 	article.Attachments = []Attachment{}
 	for rows.Next() {
 		var attachment Attachment
-		if err := rows.Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.StoredName); err != nil {
+		if err := rows.Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.CreatedAt, &attachment.StoredName); err != nil {
 			return err
 		}
 		article.Attachments = append(article.Attachments, attachment)
@@ -522,14 +528,14 @@ func (s *postgresStore) DeleteArticle(ctx context.Context, id int64) ([]Attachme
 	} else if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, article_id, filename, mime_type, stored_name FROM attachments WHERE article_id = $1`, id)
+	rows, err := tx.QueryContext(ctx, `SELECT id, article_id, filename, mime_type, size_bytes, created_at, stored_name FROM attachments WHERE article_id = $1`, id)
 	if err != nil {
 		return nil, err
 	}
 	attachments := []Attachment{}
 	for rows.Next() {
 		var attachment Attachment
-		if err := rows.Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.StoredName); err != nil {
+		if err := rows.Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.CreatedAt, &attachment.StoredName); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -552,9 +558,9 @@ func (s *postgresStore) DeleteArticle(ctx context.Context, id int64) ([]Attachme
 }
 
 func (s *postgresStore) CreateAttachment(ctx context.Context, attachment Attachment) (Attachment, error) {
-	err := s.db.QueryRowContext(ctx, `INSERT INTO attachments (article_id, filename, mime_type, stored_name)
-		SELECT $1, $2, $3, $4 WHERE EXISTS (SELECT 1 FROM articles WHERE id = $1) RETURNING id`,
-		attachment.ArticleID, attachment.Filename, attachment.MIMEType, attachment.StoredName).Scan(&attachment.ID)
+	err := s.db.QueryRowContext(ctx, `INSERT INTO attachments (article_id, filename, mime_type, size_bytes, stored_name)
+		SELECT $1, $2, $3, $4, $5 WHERE EXISTS (SELECT 1 FROM articles WHERE id = $1) RETURNING id, created_at`,
+		attachment.ArticleID, attachment.Filename, attachment.MIMEType, attachment.SizeBytes, attachment.StoredName).Scan(&attachment.ID, &attachment.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Attachment{}, errArticleNotFound
 	}
@@ -563,8 +569,8 @@ func (s *postgresStore) CreateAttachment(ctx context.Context, attachment Attachm
 
 func (s *postgresStore) GetAttachment(ctx context.Context, id int64) (Attachment, error) {
 	var attachment Attachment
-	err := s.db.QueryRowContext(ctx, `SELECT id, article_id, filename, mime_type, stored_name FROM attachments WHERE id = $1`, id).
-		Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.StoredName)
+	err := s.db.QueryRowContext(ctx, `SELECT id, article_id, filename, mime_type, size_bytes, created_at, stored_name FROM attachments WHERE id = $1`, id).
+		Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.CreatedAt, &attachment.StoredName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Attachment{}, errAttachmentNotFound
 	}
@@ -838,7 +844,7 @@ func newHandler(data store, attachmentDir string) http.Handler {
 				return
 			}
 			storedName := filepath.Base(file.Name())
-			_, copyErr := io.Copy(file, part)
+			sizeBytes, copyErr := io.Copy(file, part)
 			closeErr := file.Close()
 			part.Close()
 			if copyErr != nil || closeErr != nil {
@@ -849,7 +855,7 @@ func newHandler(data store, attachmentDir string) http.Handler {
 			if contentType == "" {
 				contentType = "application/octet-stream"
 			}
-			attachment, err := data.CreateAttachment(request.Context(), Attachment{ArticleID: id, Filename: filename, MIMEType: contentType, StoredName: storedName})
+			attachment, err := data.CreateAttachment(request.Context(), Attachment{ArticleID: id, Filename: filename, MIMEType: contentType, SizeBytes: sizeBytes, StoredName: storedName})
 			if err != nil {
 				_ = os.Remove(file.Name())
 				writeStoreError(response, err)

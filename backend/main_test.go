@@ -165,6 +165,7 @@ func (s *memoryStore) CreateAttachment(_ context.Context, attachment Attachment)
 		return Attachment{}, errArticleNotFound
 	}
 	attachment.ID = s.nextAttachment
+	attachment.CreatedAt = time.Now().UTC()
 	s.nextAttachment++
 	article.Attachments = append(article.Attachments, attachment)
 	s.articles[article.ID] = article
@@ -524,7 +525,7 @@ func TestAttachmentLifecycleAndInvalidReferences(t *testing.T) {
 	if err := json.NewDecoder(upload.Body).Decode(&attachment); err != nil {
 		t.Fatal(err)
 	}
-	if attachment.Filename != "runbook.txt" || attachment.MIMEType != "text/plain" {
+	if attachment.Filename != "runbook.txt" || attachment.MIMEType != "text/plain" || attachment.SizeBytes != int64(len("restore steps")) || attachment.CreatedAt.IsZero() {
 		t.Fatalf("unexpected attachment: %#v", attachment)
 	}
 
