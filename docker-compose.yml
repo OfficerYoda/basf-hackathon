@@ -1,19 +1,26 @@
 services:
   postgres:
     image: postgres:17-alpine
+    container_name: basf-pg
     environment:
       POSTGRES_DB: skill_radar
       POSTGRES_USER: skill_radar
       POSTGRES_PASSWORD: skill_radar
+    # Host 5432 is taken by a native Postgres on dev machines, so expose 5433.
+    # The backend (running in a container) reaches this at host.docker.internal:5433.
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U skill_radar"]
       interval: 2s
       timeout: 2s
-      retries: 10
+      retries: 15
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
 volumes:
   postgres-data:
+    # Adopt the existing anonymous volume created by the earlier `docker run`
+    # so no seeded data is lost when switching to compose.
+    name: 250b9be87177ee1a92df255e7c2f146090b517f1fde59292862032c2b1f64cb2
+    external: true

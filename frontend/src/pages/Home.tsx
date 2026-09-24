@@ -21,13 +21,13 @@ export default function Home() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4">
-      <div className="w-full max-w-xl flex flex-col items-center gap-8">
+      <div className="w-full max-w-2xl flex flex-col items-center gap-8">
         {/* Wordmark */}
         <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
+          <h1 className="text-4xl font-bold tracking-tight text-[var(--color-text)]">
             Skill<span className="text-[var(--color-accent)]">Radar</span>
           </h1>
-          <p className="text-sm text-[var(--color-muted)] mt-2">
+          <p className="text-base text-[var(--color-muted)] mt-2">
             Search employees · discover expertise · preserve knowledge
           </p>
         </div>
@@ -43,7 +43,7 @@ export default function Home() {
             <button
               key={hint}
               onClick={() => openChat(hint)}
-              className="px-2.5 py-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 text-xs font-mono transition-colors"
+              className="px-3 py-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 text-[13px] font-mono transition-colors"
             >
               {hint}
             </button>
