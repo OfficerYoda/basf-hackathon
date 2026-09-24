@@ -13,7 +13,7 @@ go run ./backend seed
 go run ./backend
 ```
 
-Die Anwendung lädt `.env` automatisch. Die Weboberfläche läuft unter <http://localhost:8080>, der Health-Endpunkt unter <http://localhost:8080/health>. Das Schema wird beim Start automatisch angelegt. Anhänge werden im lokalen Verzeichnis aus `ATTACHMENT_DIR` gespeichert. `go run ./backend seed` ersetzt den Datenbestand reproduzierbar durch drei Demo-Mitarbeiter und zwei Wissensartikel.
+Die Anwendung lädt `.env` automatisch. Die Weboberfläche läuft unter <http://localhost:8080>, der Health-Endpunkt unter <http://localhost:8080/health>. Das Schema wird beim Start automatisch angelegt. Anhänge werden im lokalen Verzeichnis aus `ATTACHMENT_DIR` gespeichert. `go run ./backend seed` ersetzt den Datenbestand reproduzierbar durch 20 Demo-Mitarbeiter, 12 Wissensartikel und sieben Anhänge.
 
 ## Entwicklung
 
