@@ -1,6 +1,5 @@
-import { useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import Spotlight from '../components/Spotlight/Spotlight'
-import ChatPanel from '../components/ChatPanel'
 import Logo from '../components/Logo'
 
 const suggestions = [
@@ -12,13 +11,7 @@ const suggestions = [
 ]
 
 export default function Home() {
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatSeed, setChatSeed] = useState<string | undefined>(undefined)
-
-  function openChat(prompt?: string) {
-    setChatSeed(prompt)
-    setChatOpen(true)
-  }
+  const { openChat } = useOutletContext<{ openChat: (prompt?: string) => void }>()
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4">
@@ -52,14 +45,6 @@ export default function Home() {
           ))}
         </div>
       </div>
-
-      {chatOpen && (
-        <ChatPanel
-          key={chatSeed ?? 'chat'}
-          onClose={() => { setChatOpen(false); setChatSeed(undefined) }}
-          initialPrompt={chatSeed}
-        />
-      )}
     </div>
   )
 }

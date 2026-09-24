@@ -129,7 +129,7 @@ export default function Layout() {
             Loading…
           </div>
         ) : (
-          <Outlet />
+          <Outlet context={{ openChat }} />
         )}
       </main>
 
@@ -156,6 +156,18 @@ export default function Layout() {
           onClose={() => { setChatOpen(false); setChatSeed(undefined) }}
           initialPrompt={chatSeed}
         />
+      )}
+
+      {!chatOpen && (
+        <button
+          type="button"
+          onClick={() => openChat()}
+          aria-label="Open AI assistant"
+          aria-haspopup="dialog"
+          className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-accent)] text-black shadow-[var(--shadow)] transition-transform hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
+        >
+          <Logo className="h-7 w-7" />
+        </button>
       )}
     </div>
   )
