@@ -128,14 +128,16 @@ export default function SkillGalaxy() {
           <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--color-text)] sm:text-4xl">Skill Galaxy</h1>
           <p className="mt-2 max-w-lg text-sm text-[var(--color-sub)]">See who knows what, where knowledge lives, and which connections keep it alive.</p>
         </div>
-        <label className="flex w-full items-center gap-2 rounded-[var(--radius)] border border-[var(--color-border-high)] bg-[var(--color-surface)] px-3 py-2.5 sm:w-72">
-          <span className="font-mono text-[var(--color-accent)]">⌕</span>
+        <label className="flex w-full items-center gap-2 rounded-[var(--radius)] border border-[var(--color-border-high)] bg-[var(--color-surface)] px-3 py-2.5 transition-colors focus-within:border-[var(--color-accent)] sm:w-72">
+          <svg className="h-5 w-5 shrink-0 text-[var(--color-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
           <span className="sr-only">Filter galaxy</span>
           <input
             value={query}
             onChange={event => setQuery(event.target.value)}
             placeholder="Find a person, skill or article"
-            className="min-w-0 flex-1 bg-transparent text-sm text-[var(--color-text)] outline-none placeholder:text-[var(--color-muted)]"
+            className="min-w-0 flex-1 bg-transparent text-sm text-[var(--color-text)] outline-none placeholder:text-[var(--color-muted)] focus-visible:outline-none"
           />
         </label>
       </header>
