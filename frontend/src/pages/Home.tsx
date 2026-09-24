@@ -6,6 +6,7 @@ const suggestions = [
   'who knows python',
   'find cryptography experts',
   'browse employees',
+  'show skill galaxy',
   "I'm leaving the company",
 ]
 

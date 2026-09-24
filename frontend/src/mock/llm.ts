@@ -9,6 +9,7 @@ export type Intent =
   | { type: 'create_profile' }
   | { type: 'exit_interview' }
   | { type: 'show_heatmap' }
+  | { type: 'show_galaxy' }
   | { type: 'wissensbasis' }
   | { type: 'unknown'; query: string }
 
@@ -60,6 +61,15 @@ export function parseIntent(input: string): CommandResult | null {
       label: 'Browse Employees',
       description: 'View employees and their skill profiles',
       icon: '∴',
+    }
+  }
+
+  if (/galaxy|knowledge\s+network|skill\s+network/.test(q)) {
+    return {
+      intent: { type: 'show_galaxy' },
+      label: 'Open Skill Galaxy',
+      description: 'Explore the live network of people, skills and knowledge',
+      icon: '✦',
     }
   }
 
