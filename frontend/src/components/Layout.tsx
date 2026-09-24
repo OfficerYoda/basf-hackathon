@@ -137,7 +137,7 @@ export default function Layout() {
           className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 bg-black/70"
           onClick={e => { if (e.target === e.currentTarget) setSpotlightOpen(false) }}
         >
-          <div className="w-full max-w-xl">
+          <div className="w-full max-w-2xl">
             <Spotlight
               variant="modal"
               onClose={() => setSpotlightOpen(false)}
