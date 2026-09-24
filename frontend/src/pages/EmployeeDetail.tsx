@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import SkillBadge from '../components/SkillBadge'
 import RatingBar from '../components/RatingBar'
+import SkillRadar from '../components/SkillRadar'
 import ConfirmDialog from '../components/ConfirmDialog'
 
 export default function EmployeeDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { employees, removeEmployee } = useData()
+  const { employees, articles, removeEmployee } = useData()
   const employee = employees.find(e => e.id === Number(id))
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -25,6 +26,12 @@ export default function EmployeeDetail() {
 
   const initials = employee.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 
+  // Articles this person authored or contributed to (matched by name — the
+  // flattened Article carries names, not ids).
+  const authored = articles.filter(a =>
+    a.author === employee.name || (a.contributors ?? []).includes(employee.name)
+  )
+
   async function handleDelete() {
     if (!employee) return
     setDeleting(true)
@@ -40,7 +47,7 @@ export default function EmployeeDetail() {
   }
 
   return (
-    <div className="p-5 max-w-lg mx-auto">
+    <div className="p-5 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <button
           onClick={() => navigate(-1)}
@@ -86,21 +93,51 @@ export default function EmployeeDetail() {
           {employee.skills.length === 0 ? (
             <p className="text-xs text-[var(--color-muted)]">No skills added yet.</p>
           ) : (
-            <div className="flex flex-col gap-4">
-              {employee.skills
-                .sort((a, b) => b.rating - a.rating)
-                .map(skill => (
-                  <div key={skill.name} className="flex items-center gap-3">
-                    <div className="w-32 shrink-0">
-                      <SkillBadge skill={skill} size="sm" />
+            <>
+              {employee.skills.length >= 3 && (
+                <div className="mb-5 -mx-2">
+                  <SkillRadar skills={employee.skills} />
+                </div>
+              )}
+              <div className="flex flex-col gap-4">
+                {employee.skills
+                  .slice()
+                  .sort((a, b) => b.rating - a.rating)
+                  .map(skill => (
+                    <div key={skill.name} className="flex items-center gap-3">
+                      <Link to={`/skills/${encodeURIComponent(skill.name.toLowerCase())}`} className="w-32 shrink-0 hover:opacity-80 transition-opacity">
+                        <SkillBadge skill={skill} size="sm" />
+                      </Link>
+                      <RatingBar value={skill.rating} className="flex-1" />
+                      <span className="text-xs text-[var(--color-muted)] font-mono w-6 text-right">{skill.rating}</span>
                     </div>
-                    <RatingBar value={skill.rating} className="flex-1" />
-                    <span className="text-xs text-[var(--color-muted)] font-mono w-6 text-right">{skill.rating}</span>
-                  </div>
-                ))}
-            </div>
+                  ))}
+              </div>
+            </>
           )}
         </div>
+      </div>
+
+      <div className="rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] p-5 mt-4">
+        <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-widest mb-3">
+          Articles · {authored.length}
+        </p>
+        {authored.length === 0 ? (
+          <p className="text-xs text-[var(--color-muted)]">No articles yet.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {authored.map(article => (
+              <Link
+                key={article.id}
+                to={`/wissensbasis/${article.id}`}
+                className="px-3 py-2 rounded-[var(--radius-sm)] bg-[var(--color-surface-high)] border border-[var(--color-border)] hover:border-[var(--color-border-high)] transition-colors"
+              >
+                <p className="text-sm text-[var(--color-text)] leading-snug">{article.title}</p>
+                <p className="text-[10px] text-[var(--color-muted)] mt-0.5 line-clamp-1">{article.description}</p>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       <ConfirmDialog

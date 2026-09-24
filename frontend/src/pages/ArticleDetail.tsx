@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import { attachmentDownloadUrl } from '../api/articles'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownContent from '../components/MarkdownContent'
+import SkillTag from '../components/SkillTag'
 
 export default function ArticleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { articles, removeArticle } = useData()
+  const { articles, employees, removeArticle } = useData()
   const article = articles.find(a => a.id === Number(id))
 
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -39,6 +40,18 @@ export default function ArticleDetail() {
   }
 
   const attachments = article.attachments ?? []
+
+  // Render a person's name as a link to their employee page when it resolves to
+  // a known employee; otherwise plain text.
+  function personName(name: string) {
+    const match = employees.find(e => e.name === name)
+    if (!match) return <span>{name}</span>
+    return (
+      <Link to={`/employees/${match.id}`} className="hover:text-[var(--color-accent)] transition-colors">
+        {name}
+      </Link>
+    )
+  }
 
   return (
     <div className="p-5 max-w-2xl mx-auto">
@@ -79,11 +92,15 @@ export default function ArticleDetail() {
           </div>
 
           <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted)] font-mono flex-wrap">
-            <span className="text-[var(--color-sub)]">{article.author}</span>
+            <span className="text-[var(--color-sub)]">{personName(article.author)}</span>
             {article.contributors && article.contributors.length > 0 && (
               <>
                 <span>+</span>
-                <span>{article.contributors.join(', ')}</span>
+                {article.contributors.map((c, i) => (
+                  <span key={c}>
+                    {personName(c)}{i < article.contributors!.length - 1 ? ',' : ''}
+                  </span>
+                ))}
               </>
             )}
             <span>·</span>
@@ -93,9 +110,7 @@ export default function ArticleDetail() {
           {article.skills.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {article.skills.map(s => (
-                <span key={s} className="text-[10px] px-1.5 py-0.5 rounded font-mono border border-[var(--color-border-high)] text-[var(--color-muted)]">
-                  {s}
-                </span>
+                <SkillTag key={s} name={s} />
               ))}
             </div>
           )}

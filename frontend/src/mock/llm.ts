@@ -54,12 +54,12 @@ export function parseIntent(input: string): CommandResult | null {
     }
   }
 
-  if (/heatmap|competenc|skill\s+map|department/.test(q)) {
+  if (/heatmap|competenc|skill\s+map|department|browse\s+employee|all\s+employee/.test(q)) {
     return {
       intent: { type: 'show_heatmap' },
-      label: 'Open Competency Heatmap',
-      description: 'Visualise skill distribution across departments',
-      icon: '▦',
+      label: 'Browse Employees',
+      description: 'View employees and their skill profiles',
+      icon: '∴',
     }
   }
 
@@ -84,4 +84,32 @@ export function parseIntent(input: string): CommandResult | null {
   }
 
   return null
+}
+
+// isSearchIntent decides whether pressing Enter on a query should behave as a
+// plain search/navigation (handled inside Spotlight) or hand off to the AI
+// assistant chat. It is deliberately conservative: anything that looks like an
+// action, a question, or free-form prose is treated as conversational so the
+// assistant can act on it. Short keyword lookups stay in Spotlight.
+export function isSearchIntent(query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+
+  // Action verbs → the user wants the assistant to DO something.
+  if (/\b(create|add|make|new|register|update|edit|change|rename|set|delete|remove|assign|draft|write|generate)\b/.test(q)) {
+    return false
+  }
+
+  // Question / conversational phrasing → assistant.
+  if (/[?]/.test(q)) return false
+  if (/^(who|what|which|how|why|when|where|can you|could you|please|help|tell me|list|find me|give me|show all)\b/.test(q)) {
+    return false
+  }
+
+  // Long free-form input is almost never a keyword lookup.
+  const words = q.split(/\s+/)
+  if (words.length > 5) return false
+
+  // Otherwise treat it as a search (names, skills, short lookups).
+  return true
 }

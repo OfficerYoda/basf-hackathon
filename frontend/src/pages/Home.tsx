@@ -5,12 +5,18 @@ import ChatPanel from '../components/ChatPanel'
 const suggestions = [
   'who knows python',
   'find cryptography experts',
-  'show heatmap',
+  'browse employees',
   "I'm leaving the company",
 ]
 
 export default function Home() {
   const [chatOpen, setChatOpen] = useState(false)
+  const [chatSeed, setChatSeed] = useState<string | undefined>(undefined)
+
+  function openChat(prompt?: string) {
+    setChatSeed(prompt)
+    setChatOpen(true)
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4">
@@ -27,23 +33,30 @@ export default function Home() {
 
         {/* Spotlight */}
         <div className="w-full">
-          <Spotlight variant="page" onOpenChat={() => setChatOpen(true)} />
+          <Spotlight variant="page" onOpenChat={openChat} />
         </div>
 
         {/* Suggestion chips */}
         <div className="flex flex-wrap justify-center gap-2">
           {suggestions.map(hint => (
-            <span
+            <button
               key={hint}
-              className="px-2.5 py-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] text-xs font-mono"
+              onClick={() => openChat(hint)}
+              className="px-2.5 py-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 text-xs font-mono transition-colors"
             >
               {hint}
-            </span>
+            </button>
           ))}
         </div>
       </div>
 
-      {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} />}
+      {chatOpen && (
+        <ChatPanel
+          key={chatSeed ?? 'chat'}
+          onClose={() => { setChatOpen(false); setChatSeed(undefined) }}
+          initialPrompt={chatSeed}
+        />
+      )}
     </div>
   )
 }

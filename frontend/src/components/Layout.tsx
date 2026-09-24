@@ -14,6 +14,7 @@ const navItems = [
 export default function Layout() {
   const [spotlightOpen, setSpotlightOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [chatSeed, setChatSeed] = useState<string | undefined>(undefined)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const location = useLocation()
   const { loading, error, reload, employees, articles, skillDefs } = useData()
@@ -34,6 +35,14 @@ export default function Layout() {
   }, [handleGlobalKey])
 
   useEffect(() => { setSpotlightOpen(false) }, [location.pathname])
+
+  // openChat is the Spotlight → assistant handoff. A seed prompt (the user's
+  // typed query) is sent automatically when the panel mounts.
+  const openChat = useCallback((prompt?: string) => {
+    setSpotlightOpen(false)
+    setChatSeed(prompt)
+    setChatOpen(true)
+  }, [])
 
   const isHome = location.pathname === '/'
 
@@ -132,14 +141,20 @@ export default function Layout() {
             <Spotlight
               variant="modal"
               onClose={() => setSpotlightOpen(false)}
-              onOpenChat={() => { setSpotlightOpen(false); setChatOpen(true) }}
+              onOpenChat={openChat}
             />
           </div>
         </div>
       )}
 
       {/* Chat panel */}
-      {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} />}
+      {chatOpen && (
+        <ChatPanel
+          key={chatSeed ?? 'chat'}
+          onClose={() => { setChatOpen(false); setChatSeed(undefined) }}
+          initialPrompt={chatSeed}
+        />
+      )}
     </div>
   )
 }

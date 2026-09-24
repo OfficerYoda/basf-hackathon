@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
+import SkillTag from '../components/SkillTag'
 
 export default function Wissensbasis() {
   const [searchParams] = useSearchParams()
@@ -68,9 +69,7 @@ export default function Wissensbasis() {
               {article.skills.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {article.skills.map(s => (
-                    <span key={s} className="text-[10px] px-1.5 py-0.5 rounded font-mono border border-[var(--color-border-high)] text-[var(--color-muted)]">
-                      {s}
-                    </span>
+                    <SkillTag key={s} name={s} stopPropagation />
                   ))}
                 </div>
               )}
