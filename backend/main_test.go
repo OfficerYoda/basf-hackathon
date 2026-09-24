@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,15 +35,16 @@ func TestLoadEnv(t *testing.T) {
 }
 
 type memoryStore struct {
-	next        int64
-	employees   map[int64]Employee
-	nextArticle int64
-	articles    map[int64]Article
-	skills      map[string]bool
+	next           int64
+	employees      map[int64]Employee
+	nextArticle    int64
+	articles       map[int64]Article
+	nextAttachment int64
+	skills         map[string]bool
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, skills: map[string]bool{}}
+	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, nextAttachment: 1, skills: map[string]bool{}}
 }
 
 func (s *memoryStore) Healthy(context.Context) error { return nil }
@@ -139,16 +145,54 @@ func (s *memoryStore) UpdateArticle(_ context.Context, id int64, input ArticleIn
 		return Article{}, err
 	}
 	article.ID, article.CreatedAt, article.UpdatedAt = id, old.CreatedAt, time.Now().UTC()
+	article.Attachments = old.Attachments
 	s.articles[id] = article
 	return article, nil
 }
 
-func (s *memoryStore) DeleteArticle(_ context.Context, id int64) error {
-	if _, ok := s.articles[id]; !ok {
-		return errArticleNotFound
+func (s *memoryStore) DeleteArticle(_ context.Context, id int64) ([]Attachment, error) {
+	article, ok := s.articles[id]
+	if !ok {
+		return nil, errArticleNotFound
 	}
 	delete(s.articles, id)
-	return nil
+	return article.Attachments, nil
+}
+
+func (s *memoryStore) CreateAttachment(_ context.Context, attachment Attachment) (Attachment, error) {
+	article, ok := s.articles[attachment.ArticleID]
+	if !ok {
+		return Attachment{}, errArticleNotFound
+	}
+	attachment.ID = s.nextAttachment
+	s.nextAttachment++
+	article.Attachments = append(article.Attachments, attachment)
+	s.articles[article.ID] = article
+	return attachment, nil
+}
+
+func (s *memoryStore) GetAttachment(_ context.Context, id int64) (Attachment, error) {
+	for _, article := range s.articles {
+		for _, attachment := range article.Attachments {
+			if attachment.ID == id {
+				return attachment, nil
+			}
+		}
+	}
+	return Attachment{}, errAttachmentNotFound
+}
+
+func (s *memoryStore) DeleteAttachment(_ context.Context, id int64) error {
+	for articleID, article := range s.articles {
+		for index, attachment := range article.Attachments {
+			if attachment.ID == id {
+				article.Attachments = append(article.Attachments[:index], article.Attachments[index+1:]...)
+				s.articles[articleID] = article
+				return nil
+			}
+		}
+	}
+	return errAttachmentNotFound
 }
 
 func (s *memoryStore) articleFromInput(input ArticleInput) (Article, error) {
@@ -204,7 +248,7 @@ func TestValidateAndNormalize(t *testing.T) {
 }
 
 func TestEmployeeLifecycle(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
 	defer server.Close()
 
 	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
@@ -261,7 +305,7 @@ func TestEmployeeLifecycle(t *testing.T) {
 }
 
 func TestInvalidEmployeeReturnsBadRequest(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
 	defer server.Close()
 
 	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
@@ -274,7 +318,7 @@ func TestInvalidEmployeeReturnsBadRequest(t *testing.T) {
 }
 
 func TestTrailingJSONReturnsBadRequest(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
 	defer server.Close()
 
 	response, err := server.Client().Post(server.URL+"/api/employees", "application/json", strings.NewReader(
@@ -306,7 +350,7 @@ func TestValidateArticle(t *testing.T) {
 func TestArticleLifecycle(t *testing.T) {
 	data := newMemoryStore()
 	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
-	server := httptest.NewServer(newHandler(data))
+	server := httptest.NewServer(newHandler(data, t.TempDir()))
 	defer server.Close()
 
 	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
@@ -351,7 +395,7 @@ func TestArticleLifecycle(t *testing.T) {
 }
 
 func TestArticleRejectsUnknownReferences(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
 	defer server.Close()
 	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
 		Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"missing"}, ContributorIDs: []int64{99},
@@ -366,12 +410,118 @@ func TestContributorCannotBeDeleted(t *testing.T) {
 	data := newMemoryStore()
 	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"postgresql"}, ContributorIDs: []int64{employee.ID}})
-	server := httptest.NewServer(newHandler(data))
+	server := httptest.NewServer(newHandler(data, t.TempDir()))
 	defer server.Close()
 
 	response := request(t, server.Client(), http.MethodDelete, server.URL+"/api/employees/1", nil)
 	response.Body.Close()
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+func uploadAttachment(t *testing.T, client *http.Client, url, name, contentType, content string) *http.Response {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": "file", "filename": name}))
+	header.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, url, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func TestAttachmentLifecycleAndInvalidReferences(t *testing.T) {
+	data := newMemoryStore()
+	article, _ := data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps"})
+	dir := t.TempDir()
+	server := httptest.NewServer(newHandler(data, dir))
+	defer server.Close()
+
+	upload := uploadAttachment(t, server.Client(), server.URL+"/api/articles/"+strconv.FormatInt(article.ID, 10)+"/attachments", "../../runbook.txt", "text/plain", "restore steps")
+	defer upload.Body.Close()
+	if upload.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d", upload.StatusCode)
+	}
+	var attachment Attachment
+	if err := json.NewDecoder(upload.Body).Decode(&attachment); err != nil {
+		t.Fatal(err)
+	}
+	if attachment.Filename != "runbook.txt" || attachment.MIMEType != "text/plain" {
+		t.Fatalf("unexpected attachment: %#v", attachment)
+	}
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0].Name()) != files[0].Name() || files[0].Name() == attachment.Filename {
+		t.Fatalf("unsafe stored files: %#v", files)
+	}
+
+	articleResponse := request(t, server.Client(), http.MethodGet, server.URL+"/api/articles/1", nil)
+	defer articleResponse.Body.Close()
+	var withAttachment Article
+	if err := json.NewDecoder(articleResponse.Body).Decode(&withAttachment); err != nil {
+		t.Fatal(err)
+	}
+	if len(withAttachment.Attachments) != 1 || withAttachment.Attachments[0].ID != attachment.ID {
+		t.Fatalf("article attachments = %#v", withAttachment.Attachments)
+	}
+
+	download := request(t, server.Client(), http.MethodGet, server.URL+"/api/attachments/"+strconv.FormatInt(attachment.ID, 10), nil)
+	defer download.Body.Close()
+	downloaded, _ := io.ReadAll(download.Body)
+	if download.StatusCode != http.StatusOK || string(downloaded) != "restore steps" || download.Header.Get("Content-Type") != "text/plain" {
+		t.Fatalf("download status/content/type = %d/%q/%q", download.StatusCode, downloaded, download.Header.Get("Content-Type"))
+	}
+
+	deleted := request(t, server.Client(), http.MethodDelete, server.URL+"/api/attachments/"+strconv.FormatInt(attachment.ID, 10), nil)
+	deleted.Body.Close()
+	if deleted.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d", deleted.StatusCode)
+	}
+	files, _ = os.ReadDir(dir)
+	if len(files) != 0 {
+		t.Fatalf("files remain after delete: %#v", files)
+	}
+
+	missingArticle := uploadAttachment(t, server.Client(), server.URL+"/api/articles/99/attachments", "orphan.txt", "text/plain", "orphan")
+	missingArticle.Body.Close()
+	missingAttachment := request(t, server.Client(), http.MethodGet, server.URL+"/api/attachments/99", nil)
+	missingAttachment.Body.Close()
+	if missingArticle.StatusCode != http.StatusNotFound || missingAttachment.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing statuses = %d, %d", missingArticle.StatusCode, missingAttachment.StatusCode)
+	}
+	files, _ = os.ReadDir(dir)
+	if len(files) != 0 {
+		t.Fatalf("orphan files created: %#v", files)
+	}
+
+	secondUpload := uploadAttachment(t, server.Client(), server.URL+"/api/articles/1/attachments", "delete-with-article.txt", "text/plain", "temporary")
+	secondUpload.Body.Close()
+	deleteArticle := request(t, server.Client(), http.MethodDelete, server.URL+"/api/articles/1", nil)
+	deleteArticle.Body.Close()
+	files, _ = os.ReadDir(dir)
+	if deleteArticle.StatusCode != http.StatusNoContent || len(files) != 0 {
+		t.Fatalf("article delete status/files = %d/%#v", deleteArticle.StatusCode, files)
 	}
 }

@@ -27,6 +27,10 @@
     article p { margin: .25rem 0 1rem; color: #516059; }
     .skills { display: flex; gap: .45rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .skill { background: #dcebe5; border-radius: 999px; padding: .35rem .65rem; }
+    .attachments { margin: 1rem 0; padding-left: 1.25rem; }
+    .attachments li { margin: .4rem 0; }
+    .attachment-form { display: flex; gap: .5rem; align-items: end; margin: 1rem 0; padding: 0; border: 0; box-shadow: none; }
+    .attachment-form label { margin: 0; flex: 1; }
     #message { min-height: 1.5rem; color: #a22020; }
     pre { white-space: pre-wrap; font: inherit; color: #263c33; }
     @media (max-width: 760px) { main { grid-template-columns: 1fr; } header { padding-block: 2rem; } }
@@ -118,6 +122,8 @@
         <article><h3>${escapeHTML(article.title)}</h3><p>${escapeHTML(article.description)}</p><pre>${escapeHTML(article.content)}</pre>
         <div class="skills">${article.skills.map(skill => `<span class="skill">${escapeHTML(skill)}</span>`).join('')}</div>
         <p>Mitwirkende: ${article.contributors.map(person => escapeHTML(person.name)).join(', ') || 'Keine'}</p>
+        <ul class="attachments">${article.attachments.map(attachment => `<li><a href="/api/attachments/${attachment.id}">${escapeHTML(attachment.filename)}</a> (${escapeHTML(attachment.mime_type)}) <button class="danger" onclick="deleteAttachment(${attachment.id})">Entfernen</button></li>`).join('') || '<li>Keine Anhänge</li>'}</ul>
+        <form class="attachment-form" onsubmit="uploadAttachment(event, ${article.id})"><label>Datei anhängen <input name="file" type="file" required></label><button type="submit">Hochladen</button></form>
         <div class="actions"><button class="secondary" onclick="editArticle(${article.id})">Bearbeiten</button><button class="danger" onclick="deleteArticle(${article.id})">Löschen</button></div></article>`).join('') || '<p>Noch keine Artikel vorhanden.</p>';
     }
 
@@ -138,6 +144,19 @@
     window.deleteArticle = async id => {
       if (!confirm('Artikel wirklich löschen?')) return;
       await fetch(`/api/articles/${id}`, { method: 'DELETE' });
+      await loadArticles();
+    };
+
+    window.uploadAttachment = async (event, articleID) => {
+      event.preventDefault();
+      const response = await fetch(`/api/articles/${articleID}/attachments`, { method: 'POST', body: new FormData(event.currentTarget) });
+      if (!response.ok) { document.querySelector('#article-message').textContent = (await response.json()).error; return; }
+      await loadArticles();
+    };
+
+    window.deleteAttachment = async id => {
+      const response = await fetch(`/api/attachments/${id}`, { method: 'DELETE' });
+      if (!response.ok) { document.querySelector('#article-message').textContent = (await response.json()).error; return; }
       await loadArticles();
     };
 

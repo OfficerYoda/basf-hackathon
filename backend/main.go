@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"net/mail"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,14 +36,23 @@ type Employee struct {
 }
 
 type Article struct {
-	ID           int64      `json:"id"`
-	Title        string     `json:"title"`
-	Description  string     `json:"description"`
-	Content      string     `json:"content"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	Skills       []string   `json:"skills"`
-	Contributors []Employee `json:"contributors"`
+	ID           int64        `json:"id"`
+	Title        string       `json:"title"`
+	Description  string       `json:"description"`
+	Content      string       `json:"content"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+	Skills       []string     `json:"skills"`
+	Contributors []Employee   `json:"contributors"`
+	Attachments  []Attachment `json:"attachments"`
+}
+
+type Attachment struct {
+	ID         int64  `json:"id"`
+	ArticleID  int64  `json:"article_id"`
+	Filename   string `json:"filename"`
+	MIMEType   string `json:"mime_type"`
+	StoredName string `json:"-"`
 }
 
 type ArticleInput struct {
@@ -123,6 +134,7 @@ func (employee *Employee) normalizeAndValidate() error {
 
 var errNotFound = errors.New("employee not found")
 var errArticleNotFound = errors.New("article not found")
+var errAttachmentNotFound = errors.New("attachment not found")
 var errInvalidReference = errors.New("skill or contributor does not exist")
 var errConflict = errors.New("email or skill already exists")
 var errReferenced = errors.New("employee is referenced by an article")
@@ -138,7 +150,10 @@ type store interface {
 	GetArticle(context.Context, int64) (Article, error)
 	CreateArticle(context.Context, ArticleInput) (Article, error)
 	UpdateArticle(context.Context, int64, ArticleInput) (Article, error)
-	DeleteArticle(context.Context, int64) error
+	DeleteArticle(context.Context, int64) ([]Attachment, error)
+	CreateAttachment(context.Context, Attachment) (Attachment, error)
+	GetAttachment(context.Context, int64) (Attachment, error)
+	DeleteAttachment(context.Context, int64) error
 }
 
 type postgresStore struct{ db *sql.DB }
@@ -179,6 +194,13 @@ CREATE TABLE IF NOT EXISTS article_contributors (
     article_id BIGINT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
     employee_id BIGINT NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
     PRIMARY KEY (article_id, employee_id)
+);
+CREATE TABLE IF NOT EXISTS attachments (
+    id BIGSERIAL PRIMARY KEY,
+    article_id BIGINT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    stored_name TEXT NOT NULL UNIQUE
 );`
 
 func (s *postgresStore) Healthy(ctx context.Context) error { return s.db.PingContext(ctx) }
@@ -378,7 +400,6 @@ func (s *postgresStore) loadArticleReferences(ctx context.Context, article *Arti
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	article.Contributors = []Employee{}
 	for rows.Next() {
 		var id int64
@@ -390,6 +411,26 @@ func (s *postgresStore) loadArticleReferences(ctx context.Context, article *Arti
 			return err
 		}
 		article.Contributors = append(article.Contributors, employee)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	rows, err = s.db.QueryContext(ctx, `SELECT id, article_id, filename, mime_type, stored_name FROM attachments WHERE article_id = $1 ORDER BY id`, article.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	article.Attachments = []Attachment{}
+	for rows.Next() {
+		var attachment Attachment
+		if err := rows.Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.StoredName); err != nil {
+			return err
+		}
+		article.Attachments = append(article.Attachments, attachment)
 	}
 	return rows.Err()
 }
@@ -464,13 +505,74 @@ func (s *postgresStore) UpdateArticle(ctx context.Context, id int64, input Artic
 	return s.GetArticle(ctx, id)
 }
 
-func (s *postgresStore) DeleteArticle(ctx context.Context, id int64) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM articles WHERE id = $1`, id)
+func (s *postgresStore) DeleteArticle(ctx context.Context, id int64) ([]Attachment, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var exists int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM articles WHERE id = $1 FOR UPDATE`, id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+		return nil, errArticleNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, article_id, filename, mime_type, stored_name FROM attachments WHERE article_id = $1`, id)
+	if err != nil {
+		return nil, err
+	}
+	attachments := []Attachment{}
+	for rows.Next() {
+		var attachment Attachment
+		if err := rows.Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.StoredName); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		attachments = append(attachments, attachment)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM articles WHERE id = $1`, id); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return attachments, nil
+}
+
+func (s *postgresStore) CreateAttachment(ctx context.Context, attachment Attachment) (Attachment, error) {
+	err := s.db.QueryRowContext(ctx, `INSERT INTO attachments (article_id, filename, mime_type, stored_name)
+		SELECT $1, $2, $3, $4 WHERE EXISTS (SELECT 1 FROM articles WHERE id = $1) RETURNING id`,
+		attachment.ArticleID, attachment.Filename, attachment.MIMEType, attachment.StoredName).Scan(&attachment.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Attachment{}, errArticleNotFound
+	}
+	return attachment, err
+}
+
+func (s *postgresStore) GetAttachment(ctx context.Context, id int64) (Attachment, error) {
+	var attachment Attachment
+	err := s.db.QueryRowContext(ctx, `SELECT id, article_id, filename, mime_type, stored_name FROM attachments WHERE id = $1`, id).
+		Scan(&attachment.ID, &attachment.ArticleID, &attachment.Filename, &attachment.MIMEType, &attachment.StoredName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Attachment{}, errAttachmentNotFound
+	}
+	return attachment, err
+}
+
+func (s *postgresStore) DeleteAttachment(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM attachments WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
 	if count, _ := result.RowsAffected(); count == 0 {
-		return errArticleNotFound
+		return errAttachmentNotFound
 	}
 	return nil
 }
@@ -489,7 +591,7 @@ func classifyDatabaseError(err error) error {
 //go:embed index.html
 var web embed.FS
 
-func newHandler(data store) http.Handler {
+func newHandler(data store, attachmentDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(response http.ResponseWriter, request *http.Request) {
 		if err := data.Healthy(request.Context()); err != nil {
@@ -610,8 +712,156 @@ func newHandler(data store) http.Handler {
 		if !ok {
 			return
 		}
-		if err := data.DeleteArticle(request.Context(), id); err != nil {
+		article, err := data.GetArticle(request.Context(), id)
+		if err != nil {
 			writeStoreError(response, err)
+			return
+		}
+		renamed := map[string]string{}
+		for _, attachment := range article.Attachments {
+			path := filepath.Join(attachmentDir, attachment.StoredName)
+			tombstone := path + ".deleting"
+			if err := os.Rename(path, tombstone); err != nil {
+				for oldPath, newPath := range renamed {
+					_ = os.Rename(newPath, oldPath)
+				}
+				writeError(response, http.StatusInternalServerError, "could not remove article attachments")
+				return
+			}
+			renamed[path] = tombstone
+		}
+		attachments, err := data.DeleteArticle(request.Context(), id)
+		if err != nil {
+			for path, tombstone := range renamed {
+				_ = os.Rename(tombstone, path)
+			}
+			writeStoreError(response, err)
+			return
+		}
+		for _, attachment := range attachments {
+			path := filepath.Join(attachmentDir, attachment.StoredName)
+			if tombstone, ok := renamed[path]; ok {
+				path = tombstone
+			}
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				writeError(response, http.StatusInternalServerError, "could not remove article attachments")
+				return
+			}
+		}
+		response.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /api/articles/{id}/attachments", func(response http.ResponseWriter, request *http.Request) {
+		_ = http.NewResponseController(response).SetReadDeadline(time.Time{})
+		id, ok := resourceID(response, request, "article")
+		if !ok {
+			return
+		}
+		if _, err := data.GetArticle(request.Context(), id); err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		reader, err := request.MultipartReader()
+		if err != nil {
+			writeError(response, http.StatusBadRequest, "a multipart file is required")
+			return
+		}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				writeError(response, http.StatusBadRequest, "a file is required")
+				return
+			}
+			if err != nil {
+				writeError(response, http.StatusBadRequest, "invalid multipart upload")
+				return
+			}
+			if part.FormName() != "file" || part.FileName() == "" {
+				part.Close()
+				continue
+			}
+			filename := part.FileName()
+			contentType := part.Header.Get("Content-Type")
+			file, err := os.CreateTemp(attachmentDir, "attachment-*")
+			if err != nil {
+				writeError(response, http.StatusInternalServerError, "could not store attachment")
+				return
+			}
+			storedName := filepath.Base(file.Name())
+			_, copyErr := io.Copy(file, part)
+			closeErr := file.Close()
+			part.Close()
+			if copyErr != nil || closeErr != nil {
+				_ = os.Remove(file.Name())
+				writeError(response, http.StatusInternalServerError, "could not store attachment")
+				return
+			}
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+			attachment, err := data.CreateAttachment(request.Context(), Attachment{ArticleID: id, Filename: filename, MIMEType: contentType, StoredName: storedName})
+			if err != nil {
+				_ = os.Remove(file.Name())
+				writeStoreError(response, err)
+				return
+			}
+			writeJSON(response, http.StatusCreated, attachment)
+			return
+		}
+	})
+	mux.HandleFunc("GET /api/attachments/{id}", func(response http.ResponseWriter, request *http.Request) {
+		_ = http.NewResponseController(response).SetWriteDeadline(time.Time{})
+		id, ok := resourceID(response, request, "attachment")
+		if !ok {
+			return
+		}
+		attachment, err := data.GetAttachment(request.Context(), id)
+		if err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		file, err := os.Open(filepath.Join(attachmentDir, attachment.StoredName))
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, "attachment file unavailable")
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, "attachment file unavailable")
+			return
+		}
+		response.Header().Set("Content-Type", attachment.MIMEType)
+		response.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename}))
+		http.ServeContent(response, request, attachment.Filename, info.ModTime(), file)
+	})
+	mux.HandleFunc("DELETE /api/attachments/{id}", func(response http.ResponseWriter, request *http.Request) {
+		id, ok := resourceID(response, request, "attachment")
+		if !ok {
+			return
+		}
+		attachment, err := data.GetAttachment(request.Context(), id)
+		if err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		path := filepath.Join(attachmentDir, attachment.StoredName)
+		tombstone := path + ".deleting"
+		if err := os.Rename(path, tombstone); err != nil {
+			writeError(response, http.StatusInternalServerError, "could not remove attachment file")
+			return
+		}
+		if err := data.DeleteAttachment(request.Context(), id); err != nil {
+			if errors.Is(err, errAttachmentNotFound) {
+				_ = os.Remove(tombstone)
+				response.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_ = os.Rename(tombstone, path)
+			writeStoreError(response, err)
+			return
+		}
+		if err := os.Remove(tombstone); err != nil {
+			writeError(response, http.StatusInternalServerError, "could not remove attachment file")
 			return
 		}
 		response.WriteHeader(http.StatusNoContent)
@@ -690,6 +940,10 @@ func writeStoreError(response http.ResponseWriter, err error) {
 		writeError(response, http.StatusNotFound, errArticleNotFound.Error())
 		return
 	}
+	if errors.Is(err, errAttachmentNotFound) {
+		writeError(response, http.StatusNotFound, errAttachmentNotFound.Error())
+		return
+	}
 	if errors.Is(err, errInvalidReference) {
 		writeError(response, http.StatusBadRequest, errInvalidReference.Error())
 		return
@@ -715,13 +969,13 @@ func writeJSON(response http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(response).Encode(value)
 }
 
-func seed(ctx context.Context, db *sql.DB) error {
+func seed(ctx context.Context, db *sql.DB, attachmentDir string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err = tx.ExecContext(ctx, `TRUNCATE article_contributors, article_skills, articles, employee_skills, employees, skills RESTART IDENTITY CASCADE`); err != nil {
+	if _, err = tx.ExecContext(ctx, `TRUNCATE attachments, article_contributors, article_skills, articles, employee_skills, employees, skills RESTART IDENTITY CASCADE`); err != nil {
 		return err
 	}
 	employees := []Employee{
@@ -751,7 +1005,21 @@ func seed(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(attachmentDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "attachment-") {
+			if err := os.Remove(filepath.Join(attachmentDir, entry.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func loadEnv(path string) error {
@@ -793,11 +1061,18 @@ func main() {
 	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	attachmentDir := os.Getenv("ATTACHMENT_DIR")
+	if attachmentDir == "" {
+		attachmentDir = "attachments"
+	}
+	if err := os.MkdirAll(attachmentDir, 0700); err != nil {
+		log.Fatalf("create attachment directory: %v", err)
+	}
 	if _, err = db.ExecContext(ctx, schema); err != nil {
 		log.Fatalf("initialize database: %v", err)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "seed" {
-		if err := seed(ctx, db); err != nil {
+		if err := seed(ctx, db, attachmentDir); err != nil {
 			log.Fatal(err)
 		}
 		log.Println("demo data seeded")
@@ -809,7 +1084,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           newHandler(&postgresStore{db: db}),
+		Handler:           newHandler(&postgresStore{db: db}, attachmentDir),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
