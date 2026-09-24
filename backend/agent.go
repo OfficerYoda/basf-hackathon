@@ -55,7 +55,12 @@ func (a *agentService) enabled() bool { return a != nil && a.apiKey != "" && a.b
 
 const messagesPath = "/anthropic/v1/messages"
 const anthropicVersion = "2023-06-01"
-const maxToolIterations = 6
+
+// maxToolIterations bounds the tool-use loop. It is generous because a single
+// exit interview finalization can create several articles: each new skill and
+// each employee lookup costs a round, though all create_article calls in one
+// assistant turn batch into a single iteration.
+const maxToolIterations = 16
 
 type anthropicRequest struct {
 	Model     string             `json:"model"`
@@ -129,7 +134,14 @@ You can search and modify this data using the provided tools. Guidelines:
 - When you look things up, answer concisely in plain prose. Do not dump raw JSON at the user.
 - After performing an action, confirm briefly what you did (e.g. "Created employee Jane Doe in Sales").
 - If a tool returns an error, explain it plainly and suggest how to fix it.
-- Keep replies short and useful; this is a command bar, not a chat bot.`
+- Keep replies short and useful; this is a command bar, not a chat bot.
+
+EXIT INTERVIEW MODE
+When a user says they are leaving, offboarding, departing, or wants to document their knowledge before they go, run a guided exit interview. In this mode the usual "keep it short" rule is relaxed — it is a multi-turn conversation whose goal is to capture everything the departing person knows as knowledge-base articles.
+1. Identify them first. Call list_employees and match by name to get their employee id. If they are not in the system, offer to create them (ask for department and email) and use create_employee, then use the new id.
+2. Interview them. Ask them to braindump what they own: processes, systems and tools, key contacts, recurring tasks, gotchas, and any undocumented know-how. Accept it one topic at a time or as one large paste, and ask brief follow-up questions to fill gaps.
+3. When they signal they are finished, split the braindump into distinct topics and call create_article once per topic. For each article: a focused title, a one-line description, the details as markdown in content, and any relevant skills (call create_skill first for skills that do not exist yet). Set the departing employee's id as the sole contributor_id on every article.
+4. Only document what the user actually told you — never invent facts. When done, summarize what you created, e.g. "Created 4 articles: …".`
 
 // handle runs the full tool-use loop and returns the final assistant text plus
 // a list of the mutations performed (for the UI to surface and to trigger a
@@ -194,7 +206,7 @@ var errAgentDisabled = errors.New("agent is not configured")
 func (a *agentService) callClaude(ctx context.Context, messages []anthropicMessage) (anthropicResponse, error) {
 	body, err := json.Marshal(anthropicRequest{
 		Model:     a.model,
-		MaxTokens: 1024,
+		MaxTokens: 4096,
 		System:    systemPrompt,
 		Tools:     agentTools,
 		Messages:  messages,
