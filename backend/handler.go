@@ -79,6 +79,16 @@ func newHandler(data store, attachmentDir string, agent *agentService) http.Hand
 			writeError(response, http.StatusBadRequest, "invalid skill name")
 			return
 		}
+		// An empty body means "ensure this skill exists" (idempotent upsert);
+		// a body with a description updates an existing skill.
+		if request.ContentLength == 0 {
+			if err := data.UpsertSkill(request.Context(), name); err != nil {
+				writeStoreError(response, err)
+				return
+			}
+			writeJSON(response, http.StatusOK, map[string]string{"name": name})
+			return
+		}
 		update, ok := decodeSkillUpdate(response, request)
 		if !ok {
 			return
@@ -581,6 +591,10 @@ func writeStoreError(response http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errReferenced) {
 		writeError(response, http.StatusConflict, errReferenced.Error())
+		return
+	}
+	if errors.Is(err, errSkillReferenced) {
+		writeError(response, http.StatusConflict, errSkillReferenced.Error())
 		return
 	}
 	writeError(response, http.StatusInternalServerError, "database operation failed")

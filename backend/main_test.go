@@ -227,9 +227,30 @@ func (s *memoryStore) UpdateSkill(_ context.Context, name string, skill SkillDef
 	return SkillDefinition{Name: name, Description: skill.Description}, nil
 }
 
+func (s *memoryStore) UpsertSkill(_ context.Context, name string) error {
+	if _, ok := s.skills[name]; !ok {
+		s.skills[name] = ""
+	}
+	return nil
+}
+
 func (s *memoryStore) DeleteSkill(_ context.Context, name string) error {
 	if _, ok := s.skills[name]; !ok {
 		return errSkillNotFound
+	}
+	for _, employee := range s.employees {
+		for _, skill := range employee.Skills {
+			if skill.Name == name {
+				return errSkillReferenced
+			}
+		}
+	}
+	for _, article := range s.articles {
+		for _, skill := range article.Skills {
+			if skill == name {
+				return errSkillReferenced
+			}
+		}
 	}
 	delete(s.skills, name)
 	return nil
@@ -512,6 +533,96 @@ func TestContributorCannotBeDeleted(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+func TestSkillPutCreatesAndIsIdempotent(t *testing.T) {
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
+	defer server.Close()
+
+	created := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/%20Rust%20", nil)
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusOK {
+		t.Fatalf("create status = %d", created.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(created.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["name"] != "rust" {
+		t.Fatalf("name not normalized: %#v", body)
+	}
+
+	// A skill with no employee usage can now be referenced by an article.
+	articleResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
+		Title: "Rust Runbook", Description: "Intro", Content: "# Steps", Skills: []string{"rust"},
+	})
+	articleResponse.Body.Close()
+	if articleResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("article using upserted skill status = %d", articleResponse.StatusCode)
+	}
+
+	repeat := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/rust", nil)
+	repeat.Body.Close()
+	if repeat.StatusCode != http.StatusOK {
+		t.Fatalf("idempotent put status = %d", repeat.StatusCode)
+	}
+
+	empty := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/%20", nil)
+	empty.Body.Close()
+	if empty.StatusCode != http.StatusBadRequest {
+		t.Fatalf("blank name status = %d", empty.StatusCode)
+	}
+}
+
+func TestSkillDeleteRequiresExistingAndUnreferenced(t *testing.T) {
+	data := newMemoryStore()
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
+	defer server.Close()
+
+	missing := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/unknown", nil)
+	missing.Body.Close()
+	if missing.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing skill status = %d", missing.StatusCode)
+	}
+
+	put := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/design", nil)
+	put.Body.Close()
+
+	created := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
+		Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "design", Rating: 7}},
+	})
+	defer created.Body.Close()
+	var employee Employee
+	if err := json.NewDecoder(created.Body).Decode(&employee); err != nil {
+		t.Fatal(err)
+	}
+
+	inUse := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/design", nil)
+	inUse.Body.Close()
+	if inUse.StatusCode != http.StatusConflict {
+		t.Fatalf("referenced skill delete status = %d", inUse.StatusCode)
+	}
+
+	id := strconv.FormatInt(employee.ID, 10)
+	cleared := request(t, server.Client(), http.MethodPut, server.URL+"/api/employees/"+id, Employee{
+		Name: "Ada", Email: "ada@example.com", Skills: []Skill{},
+	})
+	cleared.Body.Close()
+	if cleared.StatusCode != http.StatusOK {
+		t.Fatalf("clear skill status = %d", cleared.StatusCode)
+	}
+
+	deleted := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/design", nil)
+	deleted.Body.Close()
+	if deleted.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d", deleted.StatusCode)
+	}
+
+	deletedAgain := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/design", nil)
+	deletedAgain.Body.Close()
+	if deletedAgain.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete already-deleted skill status = %d", deletedAgain.StatusCode)
 	}
 }
 

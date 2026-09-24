@@ -16,6 +16,7 @@ var errSkillNotFound = errors.New("skill not found")
 var errInvalidReference = errors.New("skill or contributor does not exist")
 var errConflict = errors.New("email or skill already exists")
 var errReferenced = errors.New("employee is referenced by an article")
+var errSkillReferenced = errors.New("skill is used by an employee or article")
 
 type store interface {
 	Healthy(context.Context) error
@@ -35,6 +36,7 @@ type store interface {
 	ListSkills(context.Context) ([]SkillDefinition, error)
 	CreateSkill(context.Context, SkillDefinition) (SkillDefinition, error)
 	UpdateSkill(context.Context, string, SkillDefinition) (SkillDefinition, error)
+	UpsertSkill(context.Context, string) error
 	DeleteSkill(context.Context, string) error
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (s *postgresStore) ListSkills(ctx context.Context) ([]SkillDefinition, error) {
@@ -56,19 +58,30 @@ func (s *postgresStore) UpdateSkill(ctx context.Context, name string, skill Skil
 	return skill, nil
 }
 
+// UpsertSkill inserts a bare skill name if it does not already exist. Used when
+// employee or article references auto-create skill definitions.
+func (s *postgresStore) UpsertSkill(ctx context.Context, name string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO skills (name) VALUES ($1) ON CONFLICT DO NOTHING`, name)
+	return err
+}
+
 // DeleteSkill removes a skill definition. If the skill is still referenced by
-// an employee or article, the foreign-key constraint raises 23503, which
-// classifyDatabaseError maps to errReferenced (409).
+// an employee or article, the foreign-key constraint raises 23503, which we
+// map to errSkillReferenced (409).
 func (s *postgresStore) DeleteSkill(ctx context.Context, name string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM skills WHERE name = $1`, name)
 	if err != nil {
-		return classifyDatabaseError(err)
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23503" {
+			return errSkillReferenced
+		}
+		return err
 	}
-	affected, err := result.RowsAffected()
+	count, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if affected == 0 {
+	if count == 0 {
 		return errSkillNotFound
 	}
 	return nil
