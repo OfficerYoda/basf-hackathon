@@ -18,18 +18,18 @@ func seed(ctx context.Context, db *sql.DB, attachmentDir string) error {
 		return err
 	}
 	employees := []Employee{
-		{Name: "Anna Keller", Email: "anna.keller@example.com", Department: "Digital Solutions", Skills: []Skill{{Name: "python", Rating: 9}, {Name: "postgresql", Rating: 8}, {Name: "genai", Rating: 7}}},
-		{Name: "Mehmet Yilmaz", Email: "mehmet.yilmaz@example.com", Department: "Production", Skills: []Skill{{Name: "sap-pm", Rating: 9}, {Name: "arbeitssicherheit", Rating: 9}, {Name: "lean", Rating: 8}}},
+		{Name: "Anna Keller", Email: "anna.keller@example.com", Department: "Digital Solutions", Skills: []Skill{{Name: "python", Rating: 9}, {Name: "postgresql", Rating: 6}, {Name: "genai", Rating: 5}}},
+		{Name: "Mehmet Yilmaz", Email: "mehmet.yilmaz@example.com", Department: "Production", Skills: []Skill{{Name: "sap-pm", Rating: 9}, {Name: "arbeitssicherheit", Rating: 9}, {Name: "lean", Rating: 6}}},
 		{Name: "Sofia Marin", Email: "sofia.marin@example.com", Department: "Data & AI", Skills: []Skill{{Name: "python", Rating: 10}, {Name: "machine-learning", Rating: 9}, {Name: "data-quality", Rating: 8}}},
-		{Name: "Jonas Richter", Email: "jonas.richter@example.com", Department: "Cloud Platform", Skills: []Skill{{Name: "kubernetes", Rating: 9}, {Name: "observability", Rating: 8}, {Name: "linux", Rating: 9}}},
+		{Name: "Jonas Richter", Email: "jonas.richter@example.com", Department: "Cloud Platform", Skills: []Skill{{Name: "kubernetes", Rating: 9}, {Name: "observability", Rating: 6}, {Name: "linux", Rating: 9}}},
 		{Name: "Lea Hoffmann", Email: "lea.hoffmann@example.com", Department: "Sustainability", Skills: []Skill{{Name: "power-bi", Rating: 9}, {Name: "sustainability", Rating: 10}, {Name: "sql", Rating: 8}}},
-		{Name: "Daniel Okafor", Email: "daniel.okafor@example.com", Department: "Procurement", Skills: []Skill{{Name: "sap-ariba", Rating: 9}, {Name: "procurement", Rating: 9}, {Name: "negotiation", Rating: 8}}},
+		{Name: "Daniel Okafor", Email: "daniel.okafor@example.com", Department: "Procurement", Skills: []Skill{{Name: "sap-ariba", Rating: 9}, {Name: "procurement", Rating: 9}, {Name: "negotiation", Rating: 6}}},
 		{Name: "Priya Nair", Email: "priya.nair@example.com", Department: "Quality Management", Skills: []Skill{{Name: "sap-s4", Rating: 8}, {Name: "quality-management", Rating: 10}, {Name: "data-quality", Rating: 9}}},
 		{Name: "Lucas Ferreira", Email: "lucas.ferreira@example.com", Department: "Process Engineering", Skills: []Skill{{Name: "process-engineering", Rating: 9}, {Name: "predictive-maintenance", Rating: 8}, {Name: "python", Rating: 7}}},
-		{Name: "Amira Haddad", Email: "amira.haddad@example.com", Department: "People & Culture", Skills: []Skill{{Name: "change-management", Rating: 9}, {Name: "facilitation", Rating: 9}, {Name: "knowledge-management", Rating: 8}}},
-		{Name: "Felix Braun", Email: "felix.braun@example.com", Department: "SAP Platform", Skills: []Skill{{Name: "sap-s4", Rating: 10}, {Name: "abap", Rating: 9}, {Name: "integration", Rating: 8}}},
+		{Name: "Amira Haddad", Email: "amira.haddad@example.com", Department: "People & Culture", Skills: []Skill{{Name: "change-management", Rating: 9}, {Name: "facilitation", Rating: 9}, {Name: "knowledge-management", Rating: 6}}},
+		{Name: "Felix Braun", Email: "felix.braun@example.com", Department: "SAP Platform", Skills: []Skill{{Name: "sap-s4", Rating: 10}, {Name: "abap", Rating: 9}, {Name: "integration", Rating: 6}}},
 		{Name: "Mei Lin", Email: "mei.lin@example.com", Department: "Cyber Security", Skills: []Skill{{Name: "cybersecurity", Rating: 10}, {Name: "incident-response", Rating: 9}, {Name: "linux", Rating: 8}}},
-		{Name: "Tobias Schneider", Email: "tobias.schneider@example.com", Department: "Developer Experience", Skills: []Skill{{Name: "git", Rating: 10}, {Name: "ci/cd", Rating: 9}, {Name: "go", Rating: 8}}},
+		{Name: "Tobias Schneider", Email: "tobias.schneider@example.com", Department: "Developer Experience", Skills: []Skill{{Name: "git", Rating: 10}, {Name: "ci/cd", Rating: 9}, {Name: "go", Rating: 6}}},
 		{Name: "Elena Petrova", Email: "elena.petrova@example.com", Department: "Research & Development", Skills: []Skill{{Name: "chemistry", Rating: 10}, {Name: "laboratory", Rating: 9}, {Name: "knowledge-management", Rating: 7}}},
 		{Name: "Noah Williams", Email: "noah.williams@example.com", Department: "Site Operations", Skills: []Skill{{Name: "lean", Rating: 9}, {Name: "arbeitssicherheit", Rating: 10}, {Name: "sap-pm", Rating: 8}}},
 		{Name: "Fatima Zahra", Email: "fatima.zahra@example.com", Department: "Supply Chain", Skills: []Skill{{Name: "supply-chain", Rating: 9}, {Name: "sap-s4", Rating: 8}, {Name: "analytics", Rating: 8}}},
@@ -37,7 +37,7 @@ func seed(ctx context.Context, db *sql.DB, attachmentDir string) error {
 		{Name: "Camila Santos", Email: "camila.santos@example.com", Department: "Customer Solutions", Skills: []Skill{{Name: "crm", Rating: 9}, {Name: "formulation", Rating: 8}, {Name: "facilitation", Rating: 7}}},
 		{Name: "Kenji Sato", Email: "kenji.sato@example.com", Department: "Automation", Skills: []Skill{{Name: "industrial-iot", Rating: 9}, {Name: "integration", Rating: 8}, {Name: "predictive-maintenance", Rating: 9}}},
 		{Name: "Sarah Müller", Email: "sarah.mueller@example.com", Department: "Data Governance", Skills: []Skill{{Name: "data-governance", Rating: 10}, {Name: "data-quality", Rating: 9}, {Name: "data-mesh", Rating: 8}}},
-		{Name: "Ravi Kumar", Email: "ravi.kumar@example.com", Department: "Enterprise Architecture", Skills: []Skill{{Name: "integration", Rating: 9}, {Name: "cloud", Rating: 8}, {Name: "data-mesh", Rating: 9}}},
+		{Name: "Ravi Kumar", Email: "ravi.kumar@example.com", Department: "Enterprise Architecture", Skills: []Skill{{Name: "integration", Rating: 9}, {Name: "cloud", Rating: 6}, {Name: "data-mesh", Rating: 9}}},
 	}
 	for _, employee := range employees {
 		var id int64
