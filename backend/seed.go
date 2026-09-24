@@ -17,6 +17,55 @@ func seed(ctx context.Context, db *sql.DB, attachmentDir string) error {
 	if _, err = tx.ExecContext(ctx, `TRUNCATE attachments, article_contributors, article_skills, articles, employee_skills, employees, skills RESTART IDENTITY CASCADE`); err != nil {
 		return err
 	}
+	skills := []SkillDefinition{
+		{Name: "abap", Description: "Entwicklung und Erweiterung von SAP-Anwendungen mit ABAP."},
+		{Name: "analytics", Description: "Daten auswerten und in entscheidungsrelevante Erkenntnisse übersetzen."},
+		{Name: "arbeitssicherheit", Description: "Gefährdungen erkennen und sichere Arbeitsabläufe gestalten."},
+		{Name: "change-management", Description: "Organisatorische Veränderungen planen, begleiten und verankern."},
+		{Name: "chemistry", Description: "Chemische Stoffe, Reaktionen und Analyseverfahren verstehen und anwenden."},
+		{Name: "ci/cd", Description: "Software automatisiert prüfen, bauen und ausliefern."},
+		{Name: "cloud", Description: "Cloud-Plattformen und skalierbare Cloud-Architekturen konzipieren."},
+		{Name: "crm", Description: "Kundenbeziehungen und Vertriebsprozesse mit CRM-Systemen steuern."},
+		{Name: "cybersecurity", Description: "IT-Systeme, Anwendungen und Daten vor Angriffen schützen."},
+		{Name: "data-governance", Description: "Verantwortung, Regeln und Standards für Unternehmensdaten etablieren."},
+		{Name: "data-mesh", Description: "Dezentral verantwortete Datenprodukte nach gemeinsamen Standards gestalten."},
+		{Name: "data-quality", Description: "Datenqualität messen, sichern und nachhaltig verbessern."},
+		{Name: "facilitation", Description: "Gruppen strukturiert durch Workshops und Entscheidungsprozesse führen."},
+		{Name: "finance", Description: "Finanzielle Kennzahlen, Planung und Steuerung verstehen und anwenden."},
+		{Name: "formulation", Description: "Chemische Formulierungen entwickeln, prüfen und reproduzierbar dokumentieren."},
+		{Name: "genai", Description: "Generative KI verantwortungsvoll für geschäftliche Anwendungsfälle einsetzen."},
+		{Name: "git", Description: "Quellcode und Änderungen mit Git nachvollziehbar verwalten."},
+		{Name: "go", Description: "Zuverlässige Software mit der Programmiersprache Go entwickeln."},
+		{Name: "incident-response", Description: "IT-Störungen koordiniert analysieren, eindämmen und beheben."},
+		{Name: "industrial-iot", Description: "Industrielle Anlagen und Sensoren sicher vernetzen und auswerten."},
+		{Name: "integration", Description: "Systeme und Datenflüsse über stabile Schnittstellen verbinden."},
+		{Name: "knowledge-management", Description: "Wissen erfassen, strukturieren, teilen und langfristig erhalten."},
+		{Name: "kubernetes", Description: "Containerisierte Anwendungen mit Kubernetes betreiben."},
+		{Name: "laboratory", Description: "Laborarbeiten sicher, reproduzierbar und dokumentiert durchführen."},
+		{Name: "lean", Description: "Prozesse kontinuierlich verbessern und Verschwendung reduzieren."},
+		{Name: "linux", Description: "Linux-Systeme administrieren, automatisieren und analysieren."},
+		{Name: "machine-learning", Description: "Modelle aus Daten entwickeln, bewerten und produktiv einsetzen."},
+		{Name: "negotiation", Description: "Verhandlungen vorbereiten und tragfähige Vereinbarungen erzielen."},
+		{Name: "observability", Description: "Systemzustände mit Metriken, Logs und Traces sichtbar machen."},
+		{Name: "postgresql", Description: "PostgreSQL-Datenbanken entwickeln, betreiben und wiederherstellen."},
+		{Name: "power-bi", Description: "Datenmodelle und interaktive Berichte mit Power BI erstellen."},
+		{Name: "predictive-maintenance", Description: "Wartungsbedarf anhand von Zustands- und Sensordaten vorhersagen."},
+		{Name: "procurement", Description: "Beschaffungsprozesse strategisch planen und operativ steuern."},
+		{Name: "process-engineering", Description: "Industrielle Prozesse auslegen, analysieren und optimieren."},
+		{Name: "python", Description: "Software, Automatisierung und Datenanalysen mit Python entwickeln."},
+		{Name: "quality-management", Description: "Qualitätsanforderungen definieren, prüfen und verbessern."},
+		{Name: "sap-ariba", Description: "Beschaffungs- und Lieferantenprozesse mit SAP Ariba abbilden."},
+		{Name: "sap-pm", Description: "Instandhaltungsprozesse und technische Aufträge in SAP PM steuern."},
+		{Name: "sap-s4", Description: "Geschäftsprozesse in SAP S/4HANA gestalten und betreuen."},
+		{Name: "sql", Description: "Relationale Daten mit SQL abfragen, verändern und modellieren."},
+		{Name: "supply-chain", Description: "Lieferketten planen, überwachen und resilient gestalten."},
+		{Name: "sustainability", Description: "Nachhaltigkeitsziele in messbare betriebliche Maßnahmen übersetzen."},
+	}
+	for _, skill := range skills {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO skills (name, description) VALUES ($1, $2)`, skill.Name, skill.Description); err != nil {
+			return err
+		}
+	}
 	employees := []Employee{
 		{Name: "Anna Keller", Email: "anna.keller@example.com", Department: "Digital Solutions", Skills: []Skill{{Name: "python", Rating: 9}, {Name: "postgresql", Rating: 6}, {Name: "genai", Rating: 5}}},
 		{Name: "Mehmet Yilmaz", Email: "mehmet.yilmaz@example.com", Department: "Production", Skills: []Skill{{Name: "sap-pm", Rating: 9}, {Name: "arbeitssicherheit", Rating: 9}, {Name: "lean", Rating: 6}}},
