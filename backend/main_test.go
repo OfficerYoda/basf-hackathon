@@ -6,18 +6,39 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
+func TestLoadEnv(t *testing.T) {
+	path := t.TempDir() + "/.env"
+	if err := os.WriteFile(path, []byte("# local config\nDOTENV_FILE_VALUE=loaded\nDOTENV_OVERRIDE=from-file\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv("DOTENV_FILE_VALUE")
+	t.Cleanup(func() { os.Unsetenv("DOTENV_FILE_VALUE") })
+	t.Setenv("DOTENV_OVERRIDE", "from-shell")
+	if err := loadEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("DOTENV_FILE_VALUE") != "loaded" || os.Getenv("DOTENV_OVERRIDE") != "from-shell" {
+		t.Fatal(".env loading or environment precedence failed")
+	}
+}
+
 type memoryStore struct {
-	next      int64
-	employees map[int64]Employee
+	next        int64
+	employees   map[int64]Employee
+	nextArticle int64
+	articles    map[int64]Article
+	skills      map[string]bool
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{next: 1, employees: map[int64]Employee{}}
+	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, skills: map[string]bool{}}
 }
 
 func (s *memoryStore) Healthy(context.Context) error { return nil }
@@ -44,6 +65,9 @@ func (s *memoryStore) Create(_ context.Context, employee Employee) (Employee, er
 	employee.ID = s.next
 	s.next++
 	s.employees[employee.ID] = employee
+	for _, skill := range employee.Skills {
+		s.skills[skill.Name] = true
+	}
 	return employee, nil
 }
 
@@ -53,6 +77,9 @@ func (s *memoryStore) Update(_ context.Context, id int64, employee Employee) (Em
 	}
 	employee.ID = id
 	s.employees[id] = employee
+	for _, skill := range employee.Skills {
+		s.skills[skill.Name] = true
+	}
 	return employee, nil
 }
 
@@ -60,8 +87,85 @@ func (s *memoryStore) Delete(_ context.Context, id int64) error {
 	if _, ok := s.employees[id]; !ok {
 		return errNotFound
 	}
+	for _, article := range s.articles {
+		for _, contributor := range article.Contributors {
+			if contributor.ID == id {
+				return errReferenced
+			}
+		}
+	}
 	delete(s.employees, id)
 	return nil
+}
+
+func (s *memoryStore) ListArticles(context.Context) ([]Article, error) {
+	result := make([]Article, 0, len(s.articles))
+	for id := int64(1); id < s.nextArticle; id++ {
+		if article, ok := s.articles[id]; ok {
+			result = append(result, article)
+		}
+	}
+	return result, nil
+}
+
+func (s *memoryStore) GetArticle(_ context.Context, id int64) (Article, error) {
+	article, ok := s.articles[id]
+	if !ok {
+		return Article{}, errArticleNotFound
+	}
+	return article, nil
+}
+
+func (s *memoryStore) CreateArticle(_ context.Context, input ArticleInput) (Article, error) {
+	article, err := s.articleFromInput(input)
+	if err != nil {
+		return Article{}, err
+	}
+	article.ID = s.nextArticle
+	s.nextArticle++
+	article.CreatedAt = time.Now().UTC()
+	article.UpdatedAt = article.CreatedAt
+	s.articles[article.ID] = article
+	return article, nil
+}
+
+func (s *memoryStore) UpdateArticle(_ context.Context, id int64, input ArticleInput) (Article, error) {
+	old, ok := s.articles[id]
+	if !ok {
+		return Article{}, errArticleNotFound
+	}
+	article, err := s.articleFromInput(input)
+	if err != nil {
+		return Article{}, err
+	}
+	article.ID, article.CreatedAt, article.UpdatedAt = id, old.CreatedAt, time.Now().UTC()
+	s.articles[id] = article
+	return article, nil
+}
+
+func (s *memoryStore) DeleteArticle(_ context.Context, id int64) error {
+	if _, ok := s.articles[id]; !ok {
+		return errArticleNotFound
+	}
+	delete(s.articles, id)
+	return nil
+}
+
+func (s *memoryStore) articleFromInput(input ArticleInput) (Article, error) {
+	contributors := make([]Employee, 0, len(input.ContributorIDs))
+	for _, id := range input.ContributorIDs {
+		employee, ok := s.employees[id]
+		if !ok {
+			return Article{}, errInvalidReference
+		}
+		contributors = append(contributors, employee)
+	}
+	for _, name := range input.Skills {
+		if !s.skills[name] {
+			return Article{}, errInvalidReference
+		}
+	}
+	return Article{Title: input.Title, Description: input.Description, Content: input.Content, Skills: input.Skills, Contributors: contributors}, nil
 }
 
 func request(t *testing.T, client *http.Client, method, url string, body any) *http.Response {
@@ -85,7 +189,7 @@ func request(t *testing.T, client *http.Client, method, url string, body any) *h
 }
 
 func TestValidateAndNormalize(t *testing.T) {
-	employee := Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "Go Lang", Rating: 10}}}
+	employee := Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: " Go Lang ", Rating: 10}}}
 	if err := employee.normalizeAndValidate(); err != nil {
 		t.Fatalf("valid employee rejected: %v", err)
 	}
@@ -181,6 +285,93 @@ func TestTrailingJSONReturnsBadRequest(t *testing.T) {
 	}
 	response.Body.Close()
 	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+func TestValidateArticle(t *testing.T) {
+	article := ArticleInput{Title: "  PostgreSQL Runbook ", Description: " Recovery ", Content: " # Restore ", Skills: []string{"POSTGRESQL"}, ContributorIDs: []int64{1}}
+	if err := article.normalizeAndValidate(); err != nil {
+		t.Fatalf("valid article rejected: %v", err)
+	}
+	if article.Title != "PostgreSQL Runbook" || article.Skills[0] != "postgresql" {
+		t.Fatalf("article was not normalized: %#v", article)
+	}
+	article.Content = ""
+	if err := article.normalizeAndValidate(); err == nil {
+		t.Fatal("empty content accepted")
+	}
+}
+
+func TestArticleLifecycle(t *testing.T) {
+	data := newMemoryStore()
+	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
+	server := httptest.NewServer(newHandler(data))
+	defer server.Close()
+
+	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
+		Title: "Restore", Description: "Database recovery", Content: "# Steps", Skills: []string{"PostgreSQL"}, ContributorIDs: []int64{employee.ID},
+	})
+	defer createdResponse.Body.Close()
+	if createdResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", createdResponse.StatusCode)
+	}
+	var created Article
+	if err := json.NewDecoder(createdResponse.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Skills[0] != "postgresql" || created.Contributors[0].Name != "Ada" || created.CreatedAt.IsZero() || created.UpdatedAt.IsZero() {
+		t.Fatalf("unexpected article: %#v", created)
+	}
+
+	id := strconv.FormatInt(created.ID, 10)
+	updateResponse := request(t, server.Client(), http.MethodPut, server.URL+"/api/articles/"+id, ArticleInput{
+		Title: "Restore safely", Description: "Updated", Content: "# New steps", Skills: []string{"postgresql"}, ContributorIDs: []int64{employee.ID},
+	})
+	updateResponse.Body.Close()
+	if updateResponse.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d", updateResponse.StatusCode)
+	}
+
+	getResponse := request(t, server.Client(), http.MethodGet, server.URL+"/api/articles/"+id, nil)
+	defer getResponse.Body.Close()
+	var updated Article
+	if err := json.NewDecoder(getResponse.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "Restore safely" || len(updated.Contributors) != 1 {
+		t.Fatalf("unexpected update: %#v", updated)
+	}
+
+	deleteResponse := request(t, server.Client(), http.MethodDelete, server.URL+"/api/articles/"+id, nil)
+	deleteResponse.Body.Close()
+	if deleteResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d", deleteResponse.StatusCode)
+	}
+}
+
+func TestArticleRejectsUnknownReferences(t *testing.T) {
+	server := httptest.NewServer(newHandler(newMemoryStore()))
+	defer server.Close()
+	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
+		Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"missing"}, ContributorIDs: []int64{99},
+	})
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+func TestContributorCannotBeDeleted(t *testing.T) {
+	data := newMemoryStore()
+	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
+	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"postgresql"}, ContributorIDs: []int64{employee.ID}})
+	server := httptest.NewServer(newHandler(data))
+	defer server.Close()
+
+	response := request(t, server.Client(), http.MethodDelete, server.URL+"/api/employees/1", nil)
+	response.Body.Close()
+	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d", response.StatusCode)
 	}
 }
