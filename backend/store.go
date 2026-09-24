@@ -33,6 +33,9 @@ type store interface {
 	CreateAttachment(context.Context, Attachment) (Attachment, error)
 	GetAttachment(context.Context, int64) (Attachment, error)
 	DeleteAttachment(context.Context, int64) error
+	ListSkills(context.Context) ([]SkillDefinition, error)
+	CreateSkill(context.Context, SkillDefinition) (SkillDefinition, error)
+	UpdateSkill(context.Context, string, SkillDefinition) (SkillDefinition, error)
 	UpsertSkill(context.Context, string) error
 	DeleteSkill(context.Context, string) error
 }
@@ -42,8 +45,10 @@ type postgresStore struct{ db *sql.DB }
 const schema = `
 CREATE TABLE IF NOT EXISTS skills (
     name TEXT PRIMARY KEY,
+    description TEXT NOT NULL DEFAULT '',
     CHECK (name = lower(name))
 );
+ALTER TABLE skills ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS employees (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,

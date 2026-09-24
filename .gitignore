@@ -1,2 +1,31 @@
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Backend runtime data
 attachments/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Go build artifacts
+*.exe
+*.test
+/bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

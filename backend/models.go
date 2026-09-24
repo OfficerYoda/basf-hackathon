@@ -13,6 +13,11 @@ type Skill struct {
 	Rating int    `json:"rating"`
 }
 
+type SkillDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 type Employee struct {
 	ID         int64   `json:"id"`
 	Name       string  `json:"name"`
@@ -121,6 +126,15 @@ func (employee *Employee) normalizeAndValidate() error {
 	}
 	if employee.Skills == nil {
 		employee.Skills = []Skill{}
+	}
+	return nil
+}
+
+func (skill *SkillDefinition) normalizeAndValidate() error {
+	skill.Name = strings.ToLower(strings.TrimSpace(skill.Name))
+	skill.Description = strings.TrimSpace(skill.Description)
+	if skill.Name == "" {
+		return errors.New("name is required")
 	}
 	return nil
 }

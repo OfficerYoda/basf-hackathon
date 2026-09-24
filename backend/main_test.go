@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,11 +41,11 @@ type memoryStore struct {
 	nextArticle    int64
 	articles       map[int64]Article
 	nextAttachment int64
-	skills         map[string]bool
+	skills         map[string]string
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, nextAttachment: 1, skills: map[string]bool{}}
+	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, nextAttachment: 1, skills: map[string]string{}}
 }
 
 func (s *memoryStore) Healthy(context.Context) error { return nil }
@@ -72,7 +73,9 @@ func (s *memoryStore) Create(_ context.Context, employee Employee) (Employee, er
 	s.next++
 	s.employees[employee.ID] = employee
 	for _, skill := range employee.Skills {
-		s.skills[skill.Name] = true
+		if _, ok := s.skills[skill.Name]; !ok {
+			s.skills[skill.Name] = ""
+		}
 	}
 	return employee, nil
 }
@@ -84,7 +87,9 @@ func (s *memoryStore) Update(_ context.Context, id int64, employee Employee) (Em
 	employee.ID = id
 	s.employees[id] = employee
 	for _, skill := range employee.Skills {
-		s.skills[skill.Name] = true
+		if _, ok := s.skills[skill.Name]; !ok {
+			s.skills[skill.Name] = ""
+		}
 	}
 	return employee, nil
 }
@@ -196,13 +201,41 @@ func (s *memoryStore) DeleteAttachment(_ context.Context, id int64) error {
 	return errAttachmentNotFound
 }
 
+func (s *memoryStore) ListSkills(context.Context) ([]SkillDefinition, error) {
+	names := make([]string, 0, len(s.skills))
+	for name := range s.skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]SkillDefinition, 0, len(names))
+	for _, name := range names {
+		result = append(result, SkillDefinition{Name: name, Description: s.skills[name]})
+	}
+	return result, nil
+}
+
+func (s *memoryStore) CreateSkill(_ context.Context, skill SkillDefinition) (SkillDefinition, error) {
+	s.skills[skill.Name] = skill.Description
+	return skill, nil
+}
+
+func (s *memoryStore) UpdateSkill(_ context.Context, name string, skill SkillDefinition) (SkillDefinition, error) {
+	if _, ok := s.skills[name]; !ok {
+		return SkillDefinition{}, errSkillNotFound
+	}
+	s.skills[name] = skill.Description
+	return SkillDefinition{Name: name, Description: skill.Description}, nil
+}
+
 func (s *memoryStore) UpsertSkill(_ context.Context, name string) error {
-	s.skills[name] = true
+	if _, ok := s.skills[name]; !ok {
+		s.skills[name] = ""
+	}
 	return nil
 }
 
 func (s *memoryStore) DeleteSkill(_ context.Context, name string) error {
-	if !s.skills[name] {
+	if _, ok := s.skills[name]; !ok {
 		return errSkillNotFound
 	}
 	for _, employee := range s.employees {
@@ -233,7 +266,7 @@ func (s *memoryStore) articleFromInput(input ArticleInput) (Article, error) {
 		contributors = append(contributors, employee)
 	}
 	for _, name := range input.Skills {
-		if !s.skills[name] {
+		if _, ok := s.skills[name]; !ok {
 			return Article{}, errInvalidReference
 		}
 	}
@@ -276,7 +309,7 @@ func TestValidateAndNormalize(t *testing.T) {
 }
 
 func TestEmployeeLifecycle(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
@@ -332,8 +365,63 @@ func TestEmployeeLifecycle(t *testing.T) {
 	}
 }
 
+func TestSkillLifecycle(t *testing.T) {
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
+	defer server.Close()
+
+	createResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/skills", SkillDefinition{
+		Name: "Rust", Description: "Systems programming",
+	})
+	defer createResponse.Body.Close()
+	if createResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", createResponse.StatusCode)
+	}
+	var created SkillDefinition
+	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "rust" {
+		t.Fatalf("created skill name = %q", created.Name)
+	}
+
+	updateResponse := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/rust", map[string]string{
+		"description": "Memory-safe systems programming",
+	})
+	defer updateResponse.Body.Close()
+	if updateResponse.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d", updateResponse.StatusCode)
+	}
+	var updated SkillDefinition
+	if err := json.NewDecoder(updateResponse.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Description != "Memory-safe systems programming" {
+		t.Fatalf("updated description = %q", updated.Description)
+	}
+
+	missingUpdate := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/nope", map[string]string{
+		"description": "x",
+	})
+	missingUpdate.Body.Close()
+	if missingUpdate.StatusCode != http.StatusNotFound {
+		t.Fatalf("update missing status = %d", missingUpdate.StatusCode)
+	}
+
+	deleteResponse := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/rust", nil)
+	deleteResponse.Body.Close()
+	if deleteResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d", deleteResponse.StatusCode)
+	}
+
+	missingDelete := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/rust", nil)
+	missingDelete.Body.Close()
+	if missingDelete.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete missing status = %d", missingDelete.StatusCode)
+	}
+}
+
 func TestInvalidEmployeeReturnsBadRequest(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
@@ -346,7 +434,7 @@ func TestInvalidEmployeeReturnsBadRequest(t *testing.T) {
 }
 
 func TestTrailingJSONReturnsBadRequest(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	response, err := server.Client().Post(server.URL+"/api/employees", "application/json", strings.NewReader(
@@ -378,7 +466,7 @@ func TestValidateArticle(t *testing.T) {
 func TestArticleLifecycle(t *testing.T) {
 	data := newMemoryStore()
 	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
@@ -423,7 +511,7 @@ func TestArticleLifecycle(t *testing.T) {
 }
 
 func TestArticleRejectsUnknownReferences(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
 		Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"missing"}, ContributorIDs: []int64{99},
@@ -438,7 +526,7 @@ func TestContributorCannotBeDeleted(t *testing.T) {
 	data := newMemoryStore()
 	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"postgresql"}, ContributorIDs: []int64{employee.ID}})
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	response := request(t, server.Client(), http.MethodDelete, server.URL+"/api/employees/1", nil)
@@ -449,7 +537,7 @@ func TestContributorCannotBeDeleted(t *testing.T) {
 }
 
 func TestSkillPutCreatesAndIsIdempotent(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	created := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/%20Rust%20", nil)
@@ -489,7 +577,7 @@ func TestSkillPutCreatesAndIsIdempotent(t *testing.T) {
 
 func TestSkillDeleteRequiresExistingAndUnreferenced(t *testing.T) {
 	data := newMemoryStore()
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	missing := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/unknown", nil)
@@ -544,7 +632,7 @@ func TestSearchEmployeesAndArticles(t *testing.T) {
 	grace, _ := data.Create(context.Background(), Employee{Name: "Grace Hopper", Email: "grace@example.com", Skills: []Skill{{Name: "python", Rating: 8}, {Name: "leadership", Rating: 10}}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "PostgreSQL restore", Description: "Runbook", Content: "Use pg_restore for recovery.", Skills: []string{"postgresql"}, ContributorIDs: []int64{ada.ID}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Python mentoring", Description: "Guide", Content: "How to coach a team.", Skills: []string{"python", "leadership"}, ContributorIDs: []int64{grace.ID}})
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	tests := []struct {
@@ -630,7 +718,7 @@ func TestAttachmentLifecycleAndInvalidReferences(t *testing.T) {
 	data := newMemoryStore()
 	article, _ := data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps"})
 	dir := t.TempDir()
-	server := httptest.NewServer(newHandler(data, dir))
+	server := httptest.NewServer(newHandler(data, dir, nil))
 	defer server.Close()
 
 	upload := uploadAttachment(t, server.Client(), server.URL+"/api/articles/"+strconv.FormatInt(article.ID, 10)+"/attachments", "../../runbook.txt", "text/plain", "restore steps")
@@ -700,5 +788,50 @@ func TestAttachmentLifecycleAndInvalidReferences(t *testing.T) {
 	files, _ = os.ReadDir(dir)
 	if deleteArticle.StatusCode != http.StatusNoContent || len(files) != 0 {
 		t.Fatalf("article delete status/files = %d/%#v", deleteArticle.StatusCode, files)
+	}
+}
+
+// TestAgentRunTool exercises the tool-execution layer of the agent without any
+// Claude HTTP round-trip: it feeds tool_use inputs straight into runTool and
+// asserts the store is mutated and read tools reflect the change.
+func TestAgentRunTool(t *testing.T) {
+	agent := newAgentService(newMemoryStore(), "", "", "")
+	ctx := context.Background()
+
+	// create_skill
+	_, sentinel, mutation := agent.runTool(ctx, "create_skill", json.RawMessage(`{"name":"Go","description":"backend"}`))
+	if sentinel != "ok" || mutation == "" {
+		t.Fatalf("create_skill sentinel/mutation = %q/%q", sentinel, mutation)
+	}
+
+	// create_employee referencing the skill
+	out, sentinel, mutation := agent.runTool(ctx, "create_employee",
+		json.RawMessage(`{"name":"Jane Doe","email":"jane@basf.com","department":"R&D","skills":[{"name":"go","rating":8}]}`))
+	if sentinel != "ok" || mutation == "" {
+		t.Fatalf("create_employee sentinel/mutation = %q/%q (out=%s)", sentinel, mutation, out)
+	}
+
+	// find_experts should now return Jane
+	out, sentinel, _ = agent.runTool(ctx, "find_experts", json.RawMessage(`{"skill":"go"}`))
+	if sentinel != "ok" {
+		t.Fatalf("find_experts sentinel = %q", sentinel)
+	}
+	var experts []Employee
+	if err := json.Unmarshal([]byte(out), &experts); err != nil {
+		t.Fatalf("find_experts output not JSON: %v", err)
+	}
+	if len(experts) != 1 || experts[0].Name != "Jane Doe" {
+		t.Fatalf("find_experts = %#v, want one Jane Doe", experts)
+	}
+
+	// invalid input is reported as an error, not a panic
+	_, sentinel, mutation = agent.runTool(ctx, "create_employee", json.RawMessage(`{"name":"","email":"bad"}`))
+	if sentinel != resultError || mutation != "" {
+		t.Fatalf("invalid create_employee sentinel/mutation = %q/%q, want error", sentinel, mutation)
+	}
+
+	// unknown tool
+	if _, sentinel, _ = agent.runTool(ctx, "no_such_tool", json.RawMessage(`{}`)); sentinel != resultError {
+		t.Fatalf("unknown tool sentinel = %q, want error", sentinel)
 	}
 }

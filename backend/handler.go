@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,26 @@ import (
 //go:embed index.html
 var web embed.FS
 
-func newHandler(data store, attachmentDir string) http.Handler {
+func newHandler(data store, attachmentDir string, agent *agentService) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/agent", func(response http.ResponseWriter, request *http.Request) {
+		if !agent.enabled() {
+			writeError(response, http.StatusServiceUnavailable, "the AI assistant is not configured on this server")
+			return
+		}
+		transcript, ok := decodeAgentRequest(response, request)
+		if !ok {
+			return
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), 85*time.Second)
+		defer cancel()
+		reply, err := agent.handle(ctx, transcript)
+		if err != nil {
+			writeError(response, http.StatusBadGateway, "the assistant could not complete the request")
+			return
+		}
+		writeJSON(response, http.StatusOK, reply)
+	})
 	mux.HandleFunc("GET /health", func(response http.ResponseWriter, request *http.Request) {
 		if err := data.Healthy(request.Context()); err != nil {
 			writeError(response, http.StatusServiceUnavailable, "database unavailable")
@@ -33,6 +52,65 @@ func newHandler(data store, attachmentDir string) http.Handler {
 			return
 		}
 		writeJSON(response, http.StatusOK, employees)
+	})
+	mux.HandleFunc("GET /api/skills", func(response http.ResponseWriter, request *http.Request) {
+		skills, err := data.ListSkills(request.Context())
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, "could not list skills")
+			return
+		}
+		writeJSON(response, http.StatusOK, skills)
+	})
+	mux.HandleFunc("POST /api/skills", func(response http.ResponseWriter, request *http.Request) {
+		skill, ok := decodeSkill(response, request)
+		if !ok {
+			return
+		}
+		created, err := data.CreateSkill(request.Context(), skill)
+		if err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusCreated, created)
+	})
+	mux.HandleFunc("PUT /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
+		name := strings.ToLower(strings.TrimSpace(request.PathValue("name")))
+		if name == "" {
+			writeError(response, http.StatusBadRequest, "invalid skill name")
+			return
+		}
+		// An empty body means "ensure this skill exists" (idempotent upsert);
+		// a body with a description updates an existing skill.
+		if request.ContentLength == 0 {
+			if err := data.UpsertSkill(request.Context(), name); err != nil {
+				writeStoreError(response, err)
+				return
+			}
+			writeJSON(response, http.StatusOK, map[string]string{"name": name})
+			return
+		}
+		update, ok := decodeSkillUpdate(response, request)
+		if !ok {
+			return
+		}
+		updated, err := data.UpdateSkill(request.Context(), name, update)
+		if err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, updated)
+	})
+	mux.HandleFunc("DELETE /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
+		name := strings.ToLower(strings.TrimSpace(request.PathValue("name")))
+		if name == "" {
+			writeError(response, http.StatusBadRequest, "invalid skill name")
+			return
+		}
+		if err := data.DeleteSkill(request.Context(), name); err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/search", func(response http.ResponseWriter, request *http.Request) {
 		mode := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("mode")))
@@ -338,28 +416,6 @@ func newHandler(data store, attachmentDir string) http.Handler {
 		}
 		response.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("PUT /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
-		name, ok := decodeSkillName(response, request)
-		if !ok {
-			return
-		}
-		if err := data.UpsertSkill(request.Context(), name); err != nil {
-			writeStoreError(response, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, map[string]string{"name": name})
-	})
-	mux.HandleFunc("DELETE /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
-		name, ok := decodeSkillName(response, request)
-		if !ok {
-			return
-		}
-		if err := data.DeleteSkill(request.Context(), name); err != nil {
-			writeStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("GET /", func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/" {
 			http.NotFound(response, request)
@@ -431,17 +487,72 @@ func decodeArticle(response http.ResponseWriter, request *http.Request) (Article
 	return article, true
 }
 
-func decodeSkillName(response http.ResponseWriter, request *http.Request) (string, bool) {
-	name := strings.ToLower(strings.TrimSpace(request.PathValue("name")))
-	if name == "" {
-		writeError(response, http.StatusBadRequest, "skill name is required")
-		return "", false
-	}
-	return name, true
-}
-
 func employeeID(response http.ResponseWriter, request *http.Request) (int64, bool) {
 	return resourceID(response, request, "employee")
+}
+
+func decodeSkill(response http.ResponseWriter, request *http.Request) (SkillDefinition, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var skill SkillDefinition
+	if err := decoder.Decode(&skill); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	if err := skill.normalizeAndValidate(); err != nil {
+		writeError(response, http.StatusBadRequest, err.Error())
+		return SkillDefinition{}, false
+	}
+	return skill, true
+}
+
+// decodeSkillUpdate reads the body of a skill update. The name comes from the
+// URL path (it is immutable), so only the description is taken from the body.
+func decodeSkillUpdate(response http.ResponseWriter, request *http.Request) (SkillDefinition, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Description string `json:"description"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	return SkillDefinition{Description: strings.TrimSpace(body.Description)}, true
+}
+
+// decodeAgentRequest reads the running chat transcript the frontend posts to
+// /api/agent. Only role + text content is accepted; empty transcripts are
+// rejected.
+func decodeAgentRequest(response http.ResponseWriter, request *http.Request) ([]ClientMessage, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Messages []ClientMessage `json:"messages"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return nil, false
+	}
+	if len(body.Messages) == 0 {
+		writeError(response, http.StatusBadRequest, "messages are required")
+		return nil, false
+	}
+	for i := range body.Messages {
+		body.Messages[i].Content = strings.TrimSpace(body.Messages[i].Content)
+	}
+	return body.Messages, true
 }
 
 func resourceID(response http.ResponseWriter, request *http.Request, resource string) (int64, bool) {
