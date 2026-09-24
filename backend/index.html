@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skill Radar</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; background: #f3f0e8; color: #15251e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { padding: 3rem max(1.25rem, calc((100vw - 1100px) / 2)); background: #173f35; color: white; }
+    header p { color: #bdd0c8; max-width: 42rem; }
+    main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; display: grid; grid-template-columns: 22rem 1fr; gap: 2rem; }
+    h1, h2 { margin-top: 0; }
+    form, article { background: white; border: 1px solid #d8d5cc; border-radius: 12px; padding: 1.25rem; box-shadow: 0 5px 20px #203b2d0d; }
+    label { display: block; font-weight: 650; margin-bottom: .9rem; }
+    input { width: 100%; margin-top: .35rem; border: 1px solid #a8afa9; border-radius: 6px; padding: .7rem; font: inherit; }
+    input:focus { outline: 3px solid #91cbb4; border-color: #173f35; }
+    button { border: 0; border-radius: 6px; padding: .65rem .9rem; font: inherit; font-weight: 700; cursor: pointer; background: #f0bd36; color: #15251e; }
+    button.secondary { background: #e6e9e6; }
+    button.danger { background: transparent; color: #a22020; }
+    .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .skill-row { display: grid; grid-template-columns: 1fr 5rem auto; gap: .4rem; align-items: end; margin-bottom: .5rem; }
+    .skill-row label { margin: 0; font-size: .85rem; }
+    #employees { display: grid; gap: 1rem; }
+    article h3 { margin: 0 0 .25rem; }
+    article p { margin: .25rem 0 1rem; color: #516059; }
+    .skills { display: flex; gap: .45rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .skill { background: #dcebe5; border-radius: 999px; padding: .35rem .65rem; }
+    #message { min-height: 1.5rem; color: #a22020; }
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } header { padding-block: 2rem; } }
+  </style>
+</head>
+<body>
+  <header><h1>Skill Radar</h1><p>Kompetenzen im Team finden und die eigene Selbsteinschätzung aktuell halten.</p></header>
+  <main>
+    <section aria-labelledby="form-title">
+      <form id="employee-form">
+        <h2 id="form-title">Mitarbeiter anlegen</h2>
+        <input id="employee-id" type="hidden">
+        <label>Name <input id="name" required autocomplete="name"></label>
+        <label>E-Mail <input id="email" required type="email" autocomplete="email"></label>
+        <label>Abteilung <input id="department" autocomplete="organization-title"></label>
+        <div><strong>Skills</strong><div id="skill-rows"></div><button class="secondary" id="add-skill" type="button">Skill hinzufügen</button></div>
+        <p id="message" role="alert"></p>
+        <div class="actions"><button type="submit">Speichern</button><button class="secondary" id="cancel" type="button" hidden>Abbrechen</button></div>
+      </form>
+    </section>
+    <section aria-labelledby="list-title"><h2 id="list-title">Mitarbeiter</h2><div id="employees"></div></section>
+  </main>
+  <script>
+    const form = document.querySelector('#employee-form');
+    const rows = document.querySelector('#skill-rows');
+    const message = document.querySelector('#message');
+    let employees = [];
+
+    function addSkill(skill = { name: '', rating: 5 }) {
+      const row = document.createElement('div');
+      row.className = 'skill-row';
+      row.innerHTML = '<label>Skill<input class="skill-name" required></label><label>1–10<input class="skill-rating" required type="number" min="1" max="10"></label><button class="danger" type="button" aria-label="Skill entfernen">×</button>';
+      row.querySelector('.skill-name').value = skill.name;
+      row.querySelector('.skill-rating').value = skill.rating;
+      row.querySelector('button').onclick = () => row.remove();
+      rows.append(row);
+    }
+
+    function escapeHTML(value) {
+      const span = document.createElement('span');
+      span.textContent = value;
+      return span.innerHTML;
+    }
+
+    function resetForm() {
+      form.reset(); rows.innerHTML = ''; message.textContent = '';
+      document.querySelector('#employee-id').value = '';
+      document.querySelector('#form-title').textContent = 'Mitarbeiter anlegen';
+      document.querySelector('#cancel').hidden = true;
+    }
+
+    async function load() {
+      const response = await fetch('/api/employees');
+      employees = await response.json();
+      document.querySelector('#employees').innerHTML = employees.map(employee => `
+        <article><h3>${escapeHTML(employee.name)}</h3><p>${escapeHTML(employee.email)}${employee.department ? ` · ${escapeHTML(employee.department)}` : ''}</p>
+        <div class="skills">${employee.skills.map(skill => `<span class="skill">${escapeHTML(skill.name)} · ${skill.rating}/10</span>`).join('') || '<span>Keine Skills</span>'}</div>
+        <div class="actions"><button class="secondary" onclick="editEmployee(${employee.id})">Bearbeiten</button><button class="danger" onclick="deleteEmployee(${employee.id})">Löschen</button></div></article>`).join('') || '<p>Noch keine Mitarbeiter vorhanden.</p>';
+    }
+
+    window.editEmployee = id => {
+      const employee = employees.find(item => item.id === id);
+      document.querySelector('#employee-id').value = employee.id;
+      document.querySelector('#name').value = employee.name;
+      document.querySelector('#email').value = employee.email;
+      document.querySelector('#department').value = employee.department || '';
+      rows.innerHTML = ''; employee.skills.forEach(addSkill);
+      document.querySelector('#form-title').textContent = 'Mitarbeiter bearbeiten';
+      document.querySelector('#cancel').hidden = false;
+      form.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    window.deleteEmployee = async id => {
+      if (!confirm('Mitarbeiter wirklich löschen?')) return;
+      await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+      await load();
+    };
+
+    form.onsubmit = async event => {
+      event.preventDefault(); message.textContent = '';
+      const id = document.querySelector('#employee-id').value;
+      const body = {
+        name: document.querySelector('#name').value,
+        email: document.querySelector('#email').value,
+        department: document.querySelector('#department').value,
+        skills: [...rows.children].map(row => ({ name: row.querySelector('.skill-name').value, rating: Number(row.querySelector('.skill-rating').value) }))
+      };
+      const response = await fetch(id ? `/api/employees/${id}` : '/api/employees', { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!response.ok) { message.textContent = (await response.json()).error; return; }
+      resetForm(); await load();
+    };
+
+    document.querySelector('#add-skill').onclick = () => addSkill();
+    document.querySelector('#cancel').onclick = resetForm;
+    load().catch(() => message.textContent = 'Daten konnten nicht geladen werden.');
+  </script>
+</body>
+</html>
