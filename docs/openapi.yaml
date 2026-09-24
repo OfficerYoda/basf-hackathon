@@ -1,0 +1,659 @@
+openapi: 3.0.3
+info:
+  title: Skill Radar API
+  description: |
+    Findet vorhandene Kompetenzen (Mitarbeiter/Skills) und dokumentiertes Wissen
+    (Artikel/Anhänge) im Unternehmen auffindbar. Begriffe folgen dem Glossar in
+    `CONTEXT.md` (Mitarbeiter, Skill, Selbsteinschätzung, Artikel, Mitwirkender, Anhang).
+
+    This document specifies the **complete target API**, derived from the repo's
+    GitHub issues (`OfficerYoda/basf-hackathon`). Each operation is tagged with its
+    implementation status:
+
+    - **✅ Implemented** — issue #1 (Mitarbeiter und Skills verwalten), matches
+      `backend/main.go` as merged.
+    - **🚧 Planned** — issues #2 (Wissensartikel veröffentlichen), #3 (Dateien an
+      Artikel anhängen), #4 (Mitarbeiter und Wissen durchsuchen). Shape is derived
+      from each issue's acceptance criteria; no server code exists yet, so field
+      names and error codes for these sections are a proposed contract, not an
+      observed one.
+
+    All endpoints exchange JSON (`application/json`) and report errors as
+    `{"error": "human-readable message"}`, except file upload/download on
+    attachments.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080
+    description: Local development (docker compose + go run ./backend)
+security: []
+# No authentication: issue #1 explicitly decided changes are possible without
+# login for this hackathon MVP.
+tags:
+  - name: Health
+    description: Service liveness.
+  - name: Employees
+    description: "✅ Implemented (issue #1). Mitarbeiter mit Kontaktdaten und selbst eingeschätzten Skills."
+  - name: Articles
+    description: "🚧 Planned (issue #2). Markdown-Wissensartikel mit Skills und Mitwirkenden."
+  - name: Attachments
+    description: "🚧 Planned (issue #3). Dateien, die zu einem Artikel gehören."
+  - name: Search
+    description: "🚧 Planned (issue #4). Gemeinsame Suche über Mitarbeiter und Artikel."
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Report service health
+      description: "✅ Implemented. Pings the database and reports readiness."
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service and database are healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: Database is unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: database unavailable
+
+  /api/employees:
+    get:
+      tags: [Employees]
+      summary: List employees
+      description: "✅ Implemented. Returns all employees ordered by id, each with its skills."
+      operationId: listEmployees
+      responses:
+        "200":
+          description: List of employees.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Employee"
+    post:
+      tags: [Employees]
+      summary: Create an employee
+      description: |
+        ✅ Implemented. Request bodies are decoded strictly: unknown fields and any
+        trailing content after the JSON object are rejected with 400. Body is
+        capped at 1 MiB. Skill names are lowercased before storage; duplicate skill
+        names (post-lowercasing) within the same request are rejected with 400.
+      operationId: createEmployee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Employee"
+      responses:
+        "201":
+          description: Employee created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Email already in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "email or skill already exists"
+
+  /api/employees/{id}:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Employees]
+      summary: Get an employee
+      description: "✅ Implemented."
+      operationId: getEmployee
+      responses:
+        "200":
+          description: The employee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Employees]
+      summary: Replace an employee
+      description: |
+        ✅ Implemented. Full replace: the submitted `skills` array replaces the
+        employee's existing skills entirely (skills not included are removed).
+      operationId: updateEmployee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Employee"
+      responses:
+        "200":
+          description: Updated employee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Email already in use by another employee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Employees]
+      summary: Delete an employee
+      description: "✅ Implemented. Cascades to the employee's skills."
+      operationId: deleteEmployee
+      responses:
+        "204":
+          description: Employee deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/articles:
+    get:
+      tags: [Articles]
+      summary: List articles
+      description: "🚧 Planned (issue #2)."
+      operationId: listArticles
+      responses:
+        "200":
+          description: List of articles, each with its skills and contributors.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Article"
+    post:
+      tags: [Articles]
+      summary: Publish an article
+      description: |
+        🚧 Planned (issue #2). `skills` must reference existing skill names;
+        `contributor_ids` must reference existing employees. Authors and other
+        participants are not distinguished by role — all are "Mitwirkende".
+      operationId: createArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArticleInput"
+      responses:
+        "201":
+          description: Article created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+        "400":
+          description: Invalid body, or a referenced skill/contributor does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/articles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ArticleId"
+    get:
+      tags: [Articles]
+      summary: Get an article
+      description: "🚧 Planned (issue #2). Includes skills, contributors, and attachment metadata."
+      operationId: getArticle
+      responses:
+        "200":
+          description: The article.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Articles]
+      summary: Replace an article
+      description: "🚧 Planned (issue #2). Full replace of title, description, content, skills, and contributors."
+      operationId: updateArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArticleInput"
+      responses:
+        "200":
+          description: Updated article.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+        "400":
+          description: Invalid body, or a referenced skill/contributor does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Articles]
+      summary: Delete an article
+      description: |
+        🚧 Planned (issue #2). Also deletes the article's stored attachment files,
+        so no orphaned files remain (issue #3's no-orphans requirement).
+      operationId: deleteArticle
+      responses:
+        "204":
+          description: Article deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/articles/{articleId}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/ArticleIdForAttachment"
+    get:
+      tags: [Attachments]
+      summary: List an article's attachments
+      description: "🚧 Planned (issue #3)."
+      operationId: listAttachments
+      responses:
+        "200":
+          description: Attachments for the article.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Attachment"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Attachments]
+      summary: Upload an attachment
+      description: |
+        🚧 Planned (issue #3). Stores the file on a local volume and its metadata
+        (original filename, MIME type) in Postgres, linked to the article. No
+        maximum upload size is enforced, per the product decision for this
+        hackathon MVP. The stored filename is derived server-side so a client
+        cannot escape the storage directory or overwrite an existing file.
+      operationId: createAttachment
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to attach. Original filename and MIME type are read from the multipart part.
+      responses:
+        "201":
+          description: Attachment stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+        "400":
+          description: Missing or empty file part.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/articles/{articleId}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/ArticleIdForAttachment"
+      - name: attachmentId
+        in: path
+        required: true
+        description: Attachment id.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    get:
+      tags: [Attachments]
+      summary: Download an attachment
+      description: |
+        🚧 Planned (issue #3). Streams the stored file. The response `Content-Type`
+        reflects the attachment's stored MIME type and `Content-Disposition`
+        carries the original filename.
+      operationId: downloadAttachment
+      responses:
+        "200":
+          description: File contents.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Article or attachment not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Attachments]
+      summary: Delete an attachment
+      description: "🚧 Planned (issue #3). Removes both the stored file and its metadata; never leaves one without the other."
+      operationId: deleteAttachment
+      responses:
+        "204":
+          description: Attachment deleted.
+        "404":
+          description: Article or attachment not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/search:
+    get:
+      tags: [Search]
+      summary: Search employees and articles
+      description: |
+        🚧 Planned (issue #4). Free text (`q`) matches employee names, and article
+        titles or markdown content. Skill filters (`skills`) narrow the result to
+        entries holding all (`mode=and`) or at least one (`mode=or`) of the given
+        skills; skill names are matched case-insensitively against their
+        lowercase-normalized form. `q` and `skills` may be combined: a result must
+        satisfy the text match (if `q` is given) *and* the skill filter (if
+        `skills` is given).
+
+        Deterministic behavior for edge cases: omitting both `q` and `skills`
+        returns empty `employees` and `articles` arrays rather than a full dump.
+        An empty `skills` list is treated as "no skill filter".
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Free-text query, matched against employee names and article titles/content.
+          schema:
+            type: string
+        - name: skills
+          in: query
+          required: false
+          description: Comma-separated skill names to filter by.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+          example: [python, leadership]
+        - name: mode
+          in: query
+          required: false
+          description: How multiple `skills` combine.
+          schema:
+            type: string
+            enum: [and, or]
+            default: or
+      responses:
+        "200":
+          description: Matches, grouped by type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          description: Invalid `mode` value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  parameters:
+    EmployeeId:
+      name: id
+      in: path
+      required: true
+      description: Employee id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    ArticleId:
+      name: id
+      in: path
+      required: true
+      description: Article id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    ArticleIdForAttachment:
+      name: articleId
+      in: path
+      required: true
+      description: Id of the article the attachment belongs to.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameter.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: employee not found
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    Skill:
+      type: object
+      required: [name, rating]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: >
+            Freely assigned tag, lowercased by the server before storage.
+            Different original casings collapse into the same skill.
+          example: python
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Self-assessment (Selbsteinschätzung), not a verified competency.
+          example: 9
+
+    Employee:
+      type: object
+      required: [name, email]
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          example: 1
+        name:
+          type: string
+          minLength: 1
+          example: Ada Lovelace
+        email:
+          type: string
+          format: email
+          example: ada@example.com
+        department:
+          type: string
+          example: Digitalization
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skill"
+          default: []
+          description: Skill names must be unique within the employee (case-insensitive, after lowercasing).
+
+    EmployeeSummary:
+      type: object
+      description: Minimal employee reference, used where an article credits a contributor.
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+
+    ArticleInput:
+      type: object
+      required: [title, description, content]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          example: Onboarding auf den neuen Deploy-Prozess
+        description:
+          type: string
+          example: Kurzüberblick über den neuen CI/CD-Ablauf.
+        content:
+          type: string
+          description: Markdown body.
+          example: "## Übersicht\n\n..."
+        skills:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Names of existing skills to tag this article with. Lowercased before storage.
+          example: [ci-cd, deployment]
+        contributor_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+          default: []
+          description: >
+            Ids of employees credited on this article. Authors and other
+            participants are not distinguished by role (all are Mitwirkende).
+
+    Article:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        title:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        contributors:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeeSummary"
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attachment"
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    Attachment:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        article_id:
+          type: integer
+          format: int64
+          readOnly: true
+        filename:
+          type: string
+          description: Original filename supplied at upload time.
+          example: architecture-notes.pdf
+        mime_type:
+          type: string
+          example: application/pdf
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size of the stored file in bytes.
+          example: 48213
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    SearchResponse:
+      type: object
+      properties:
+        employees:
+          type: array
+          items:
+            $ref: "#/components/schemas/Employee"
+        articles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Article"
