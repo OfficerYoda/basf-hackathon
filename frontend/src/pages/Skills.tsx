@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import type { SkillDefinition } from '../mock/data'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -72,9 +72,12 @@ export default function Skills() {
             key={skill.id}
             className="flex items-start gap-4 px-4 py-3 rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-border-high)] transition-colors"
           >
-            <span className="font-mono text-sm text-[var(--color-accent)] shrink-0 mt-0.5 min-w-[140px]">
+            <Link
+              to={`/skills/${encodeURIComponent(skill.name.toLowerCase())}`}
+              className="font-mono text-sm text-[var(--color-accent)] shrink-0 mt-0.5 min-w-[140px] hover:underline"
+            >
               {skill.name}
-            </span>
+            </Link>
             {editingName === skill.name ? (
               <div className="flex-1 flex flex-col gap-2">
                 <textarea
