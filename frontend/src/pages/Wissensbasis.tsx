@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import SkillTag from '../components/SkillTag'
 
 export default function Wissensbasis() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { articles } = useData()
+  const { articles, employees } = useData()
   const [query, setQuery] = useState('')
   const highlightId = Number(searchParams.get('article'))
 
@@ -74,7 +74,15 @@ export default function Wissensbasis() {
                 </div>
               )}
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted)] pt-2 border-t border-[var(--color-border)] mt-auto font-mono flex-wrap">
-                <span>{article.author}</span>
+                {employees.find(employee => employee.name === article.author) ? (
+                  <Link
+                    to={`/employees/${employees.find(employee => employee.name === article.author)!.id}`}
+                    onClick={event => event.stopPropagation()}
+                    className="text-[var(--color-sub)] transition-colors hover:text-[var(--color-accent)]"
+                  >
+                    {article.author}
+                  </Link>
+                ) : <span>{article.author}</span>}
                 {article.contributors && article.contributors.length > 0 && (
                   <>
                     <span>+</span>
