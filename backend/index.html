@@ -14,8 +14,8 @@
     h1, h2 { margin-top: 0; }
     form, article { background: white; border: 1px solid #d8d5cc; border-radius: 12px; padding: 1.25rem; box-shadow: 0 5px 20px #203b2d0d; }
     label { display: block; font-weight: 650; margin-bottom: .9rem; }
-    input { width: 100%; margin-top: .35rem; border: 1px solid #a8afa9; border-radius: 6px; padding: .7rem; font: inherit; }
-    input:focus { outline: 3px solid #91cbb4; border-color: #173f35; }
+    input, textarea, select { width: 100%; margin-top: .35rem; border: 1px solid #a8afa9; border-radius: 6px; padding: .7rem; font: inherit; }
+    input:focus, textarea:focus, select:focus { outline: 3px solid #91cbb4; border-color: #173f35; }
     button { border: 0; border-radius: 6px; padding: .65rem .9rem; font: inherit; font-weight: 700; cursor: pointer; background: #f0bd36; color: #15251e; }
     button.secondary { background: #e6e9e6; }
     button.danger { background: transparent; color: #a22020; }
@@ -28,6 +28,7 @@
     .skills { display: flex; gap: .45rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .skill { background: #dcebe5; border-radius: 999px; padding: .35rem .65rem; }
     #message { min-height: 1.5rem; color: #a22020; }
+    pre { white-space: pre-wrap; font: inherit; color: #263c33; }
     @media (max-width: 760px) { main { grid-template-columns: 1fr; } header { padding-block: 2rem; } }
   </style>
 </head>
@@ -47,12 +48,27 @@
       </form>
     </section>
     <section aria-labelledby="list-title"><h2 id="list-title">Mitarbeiter</h2><div id="employees"></div></section>
+    <section aria-labelledby="article-form-title">
+      <form id="article-form">
+        <h2 id="article-form-title">Artikel veröffentlichen</h2>
+        <input id="article-id" type="hidden">
+        <label>Titel <input id="article-title" required></label>
+        <label>Beschreibung <textarea id="article-description" required rows="3"></textarea></label>
+        <label>Markdown-Inhalt <textarea id="article-content" required rows="10"></textarea></label>
+        <label>Skills (kommagetrennt) <input id="article-skills" placeholder="postgresql, backup"></label>
+        <label>Mitwirkende <select id="article-contributors" multiple size="5"></select></label>
+        <p id="article-message" role="alert"></p>
+        <div class="actions"><button type="submit">Speichern</button><button class="secondary" id="article-cancel" type="button" hidden>Abbrechen</button></div>
+      </form>
+    </section>
+    <section aria-labelledby="article-list-title"><h2 id="article-list-title">Wissensartikel</h2><div id="articles"></div></section>
   </main>
   <script>
     const form = document.querySelector('#employee-form');
     const rows = document.querySelector('#skill-rows');
     const message = document.querySelector('#message');
     let employees = [];
+    let articles = [];
 
     function addSkill(skill = { name: '', rating: 5 }) {
       const row = document.createElement('div');
@@ -84,7 +100,46 @@
         <article><h3>${escapeHTML(employee.name)}</h3><p>${escapeHTML(employee.email)}${employee.department ? ` · ${escapeHTML(employee.department)}` : ''}</p>
         <div class="skills">${employee.skills.map(skill => `<span class="skill">${escapeHTML(skill.name)} · ${skill.rating}/10</span>`).join('') || '<span>Keine Skills</span>'}</div>
         <div class="actions"><button class="secondary" onclick="editEmployee(${employee.id})">Bearbeiten</button><button class="danger" onclick="deleteEmployee(${employee.id})">Löschen</button></div></article>`).join('') || '<p>Noch keine Mitarbeiter vorhanden.</p>';
+      document.querySelector('#article-contributors').innerHTML = employees.map(employee => `<option value="${employee.id}">${escapeHTML(employee.name)}</option>`).join('');
     }
+
+    function resetArticleForm() {
+      document.querySelector('#article-form').reset();
+      document.querySelector('#article-id').value = '';
+      document.querySelector('#article-form-title').textContent = 'Artikel veröffentlichen';
+      document.querySelector('#article-cancel').hidden = true;
+      document.querySelector('#article-message').textContent = '';
+    }
+
+    async function loadArticles() {
+      const response = await fetch('/api/articles');
+      articles = await response.json();
+      document.querySelector('#articles').innerHTML = articles.map(article => `
+        <article><h3>${escapeHTML(article.title)}</h3><p>${escapeHTML(article.description)}</p><pre>${escapeHTML(article.content)}</pre>
+        <div class="skills">${article.skills.map(skill => `<span class="skill">${escapeHTML(skill)}</span>`).join('')}</div>
+        <p>Mitwirkende: ${article.contributors.map(person => escapeHTML(person.name)).join(', ') || 'Keine'}</p>
+        <div class="actions"><button class="secondary" onclick="editArticle(${article.id})">Bearbeiten</button><button class="danger" onclick="deleteArticle(${article.id})">Löschen</button></div></article>`).join('') || '<p>Noch keine Artikel vorhanden.</p>';
+    }
+
+    window.editArticle = id => {
+      const article = articles.find(item => item.id === id);
+      document.querySelector('#article-id').value = article.id;
+      document.querySelector('#article-title').value = article.title;
+      document.querySelector('#article-description').value = article.description;
+      document.querySelector('#article-content').value = article.content;
+      document.querySelector('#article-skills').value = article.skills.join(', ');
+      const ids = new Set(article.contributors.map(person => person.id));
+      [...document.querySelector('#article-contributors').options].forEach(option => option.selected = ids.has(Number(option.value)));
+      document.querySelector('#article-form-title').textContent = 'Artikel bearbeiten';
+      document.querySelector('#article-cancel').hidden = false;
+      document.querySelector('#article-form').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    window.deleteArticle = async id => {
+      if (!confirm('Artikel wirklich löschen?')) return;
+      await fetch(`/api/articles/${id}`, { method: 'DELETE' });
+      await loadArticles();
+    };
 
     window.editEmployee = id => {
       const employee = employees.find(item => item.id === id);
@@ -100,7 +155,8 @@
 
     window.deleteEmployee = async id => {
       if (!confirm('Mitarbeiter wirklich löschen?')) return;
-      await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+      if (!response.ok) { message.textContent = (await response.json()).error; return; }
       await load();
     };
 
@@ -118,9 +174,25 @@
       resetForm(); await load();
     };
 
+    document.querySelector('#article-form').onsubmit = async event => {
+      event.preventDefault();
+      const id = document.querySelector('#article-id').value;
+      const body = {
+        title: document.querySelector('#article-title').value,
+        description: document.querySelector('#article-description').value,
+        content: document.querySelector('#article-content').value,
+        skills: document.querySelector('#article-skills').value.split(',').map(value => value.trim()).filter(Boolean),
+        contributor_ids: [...document.querySelector('#article-contributors').selectedOptions].map(option => Number(option.value))
+      };
+      const response = await fetch(id ? `/api/articles/${id}` : '/api/articles', { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!response.ok) { document.querySelector('#article-message').textContent = (await response.json()).error; return; }
+      resetArticleForm(); await loadArticles();
+    };
+
     document.querySelector('#add-skill').onclick = () => addSkill();
     document.querySelector('#cancel').onclick = resetForm;
-    load().catch(() => message.textContent = 'Daten konnten nicht geladen werden.');
+    document.querySelector('#article-cancel').onclick = resetArticleForm;
+    load().then(loadArticles).catch(() => message.textContent = 'Daten konnten nicht geladen werden.');
   </script>
 </body>
 </html>
