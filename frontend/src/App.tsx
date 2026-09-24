@@ -12,6 +12,7 @@ import Wissensbasis from './pages/Wissensbasis'
 import ArticleDetail from './pages/ArticleDetail'
 import CreateArticle from './pages/CreateArticle'
 import EditArticle from './pages/EditArticle'
+import SkillGalaxy from './pages/SkillGalaxy'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/wissensbasis/new" element={<CreateArticle />} />
           <Route path="/wissensbasis/:id" element={<ArticleDetail />} />
           <Route path="/wissensbasis/:id/edit" element={<EditArticle />} />
+          <Route path="/galaxy" element={<SkillGalaxy />} />
         </Route>
       </Routes>
     </BrowserRouter>
