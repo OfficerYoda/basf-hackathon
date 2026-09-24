@@ -338,6 +338,28 @@ func newHandler(data store, attachmentDir string) http.Handler {
 		}
 		response.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("PUT /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
+		name, ok := decodeSkillName(response, request)
+		if !ok {
+			return
+		}
+		if err := data.UpsertSkill(request.Context(), name); err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, map[string]string{"name": name})
+	})
+	mux.HandleFunc("DELETE /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
+		name, ok := decodeSkillName(response, request)
+		if !ok {
+			return
+		}
+		if err := data.DeleteSkill(request.Context(), name); err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /", func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/" {
 			http.NotFound(response, request)
@@ -409,6 +431,15 @@ func decodeArticle(response http.ResponseWriter, request *http.Request) (Article
 	return article, true
 }
 
+func decodeSkillName(response http.ResponseWriter, request *http.Request) (string, bool) {
+	name := strings.ToLower(strings.TrimSpace(request.PathValue("name")))
+	if name == "" {
+		writeError(response, http.StatusBadRequest, "skill name is required")
+		return "", false
+	}
+	return name, true
+}
+
 func employeeID(response http.ResponseWriter, request *http.Request) (int64, bool) {
 	return resourceID(response, request, "employee")
 }
@@ -435,6 +466,10 @@ func writeStoreError(response http.ResponseWriter, err error) {
 		writeError(response, http.StatusNotFound, errAttachmentNotFound.Error())
 		return
 	}
+	if errors.Is(err, errSkillNotFound) {
+		writeError(response, http.StatusNotFound, errSkillNotFound.Error())
+		return
+	}
 	if errors.Is(err, errInvalidReference) {
 		writeError(response, http.StatusBadRequest, errInvalidReference.Error())
 		return
@@ -445,6 +480,10 @@ func writeStoreError(response http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errReferenced) {
 		writeError(response, http.StatusConflict, errReferenced.Error())
+		return
+	}
+	if errors.Is(err, errSkillReferenced) {
+		writeError(response, http.StatusConflict, errSkillReferenced.Error())
 		return
 	}
 	writeError(response, http.StatusInternalServerError, "database operation failed")

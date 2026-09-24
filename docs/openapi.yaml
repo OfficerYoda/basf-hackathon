@@ -30,6 +30,8 @@ tags:
     description: "✅ Implemented (issue #3). Dateien, die zu einem Artikel gehören."
   - name: Search
     description: "✅ Implemented (issue #4). Gemeinsame Suche über Mitarbeiter und Artikel."
+  - name: Skills
+    description: "✅ Implemented. Die gemeinsame Skill-Vokabular-Tabelle direkt verwalten, unabhängig von Mitarbeitern und Artikeln."
 
 paths:
   /health:
@@ -423,6 +425,59 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/skills/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: Skill name. Lowercased and trimmed server-side before matching.
+        schema:
+          type: string
+    put:
+      tags: [Skills]
+      summary: Register a skill name
+      description: |
+        ✅ Implemented. Idempotent, no request body: ensures the skill exists in
+        the shared vocabulary so an article can reference it via `skills` in
+        `ArticleInput` even before any employee has self-assessed it. Calling
+        this again for an already-registered name is a no-op and still returns
+        200.
+      operationId: putSkill
+      responses:
+        "200":
+          description: The skill now exists (created or already present).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillName"
+        "400":
+          description: Blank skill name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Skills]
+      summary: Remove a skill name
+      description: |
+        ✅ Implemented. Rejected with 409 while any employee or article still
+        references the skill (foreign key constraint) — remove those
+        references first.
+      operationId: deleteSkill
+      responses:
+        "204":
+          description: Skill deleted.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Skill is still used by an employee or article.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "skill is used by an employee or article"
+
 components:
   parameters:
     EmployeeId:
@@ -657,3 +712,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Article"
+
+    SkillName:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Lowercased, trimmed skill name.
+          example: rust
