@@ -12,9 +12,11 @@ import (
 var errNotFound = errors.New("employee not found")
 var errArticleNotFound = errors.New("article not found")
 var errAttachmentNotFound = errors.New("attachment not found")
+var errSkillNotFound = errors.New("skill not found")
 var errInvalidReference = errors.New("skill or contributor does not exist")
 var errConflict = errors.New("email or skill already exists")
 var errReferenced = errors.New("employee is referenced by an article")
+var errSkillReferenced = errors.New("skill is used by an employee or article")
 
 type store interface {
 	Healthy(context.Context) error
@@ -31,6 +33,8 @@ type store interface {
 	CreateAttachment(context.Context, Attachment) (Attachment, error)
 	GetAttachment(context.Context, int64) (Attachment, error)
 	DeleteAttachment(context.Context, int64) error
+	UpsertSkill(context.Context, string) error
+	DeleteSkill(context.Context, string) error
 }
 
 type postgresStore struct{ db *sql.DB }
