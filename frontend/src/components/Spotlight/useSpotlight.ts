@@ -10,7 +10,7 @@ export type ResultItem =
   | { kind: 'article'; data: Article }
   | { kind: 'command'; data: CommandResult }
 
-export function useSpotlight(onOpenChat?: () => void) {
+export function useSpotlight(onOpenChat?: (prompt?: string) => void) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ResultItem[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -60,8 +60,10 @@ export function useSpotlight(onOpenChat?: () => void) {
       switch (intent.type) {
         case 'navigate':      navigate(intent.route); break
         case 'create_profile':
+          onOpenChat?.('I want to document my knowledge and create my employee profile.')
+          break
         case 'exit_interview':
-          onOpenChat?.()
+          onOpenChat?.("I'm leaving the company and want to document my knowledge before I go.")
           break
         case 'show_heatmap':  navigate('/employees'); break
         case 'wissensbasis':  navigate('/wissensbasis'); break

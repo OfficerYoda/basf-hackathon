@@ -288,7 +288,7 @@ func TestValidateAndNormalize(t *testing.T) {
 }
 
 func TestEmployeeLifecycle(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
@@ -345,7 +345,7 @@ func TestEmployeeLifecycle(t *testing.T) {
 }
 
 func TestSkillLifecycle(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	createResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/skills", SkillDefinition{
@@ -400,7 +400,7 @@ func TestSkillLifecycle(t *testing.T) {
 }
 
 func TestInvalidEmployeeReturnsBadRequest(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/employees", Employee{
@@ -413,7 +413,7 @@ func TestInvalidEmployeeReturnsBadRequest(t *testing.T) {
 }
 
 func TestTrailingJSONReturnsBadRequest(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 
 	response, err := server.Client().Post(server.URL+"/api/employees", "application/json", strings.NewReader(
@@ -445,7 +445,7 @@ func TestValidateArticle(t *testing.T) {
 func TestArticleLifecycle(t *testing.T) {
 	data := newMemoryStore()
 	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	createdResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
@@ -490,7 +490,7 @@ func TestArticleLifecycle(t *testing.T) {
 }
 
 func TestArticleRejectsUnknownReferences(t *testing.T) {
-	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir(), nil))
 	defer server.Close()
 	response := request(t, server.Client(), http.MethodPost, server.URL+"/api/articles", ArticleInput{
 		Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"missing"}, ContributorIDs: []int64{99},
@@ -505,7 +505,7 @@ func TestContributorCannotBeDeleted(t *testing.T) {
 	data := newMemoryStore()
 	employee, _ := data.Create(context.Background(), Employee{Name: "Ada", Email: "ada@example.com", Skills: []Skill{{Name: "postgresql", Rating: 9}}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps", Skills: []string{"postgresql"}, ContributorIDs: []int64{employee.ID}})
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	response := request(t, server.Client(), http.MethodDelete, server.URL+"/api/employees/1", nil)
@@ -521,7 +521,7 @@ func TestSearchEmployeesAndArticles(t *testing.T) {
 	grace, _ := data.Create(context.Background(), Employee{Name: "Grace Hopper", Email: "grace@example.com", Skills: []Skill{{Name: "python", Rating: 8}, {Name: "leadership", Rating: 10}}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "PostgreSQL restore", Description: "Runbook", Content: "Use pg_restore for recovery.", Skills: []string{"postgresql"}, ContributorIDs: []int64{ada.ID}})
 	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Python mentoring", Description: "Guide", Content: "How to coach a team.", Skills: []string{"python", "leadership"}, ContributorIDs: []int64{grace.ID}})
-	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	server := httptest.NewServer(newHandler(data, t.TempDir(), nil))
 	defer server.Close()
 
 	tests := []struct {
@@ -607,7 +607,7 @@ func TestAttachmentLifecycleAndInvalidReferences(t *testing.T) {
 	data := newMemoryStore()
 	article, _ := data.CreateArticle(context.Background(), ArticleInput{Title: "Runbook", Description: "Recovery", Content: "# Steps"})
 	dir := t.TempDir()
-	server := httptest.NewServer(newHandler(data, dir))
+	server := httptest.NewServer(newHandler(data, dir, nil))
 	defer server.Close()
 
 	upload := uploadAttachment(t, server.Client(), server.URL+"/api/articles/"+strconv.FormatInt(article.ID, 10)+"/attachments", "../../runbook.txt", "text/plain", "restore steps")
@@ -677,5 +677,50 @@ func TestAttachmentLifecycleAndInvalidReferences(t *testing.T) {
 	files, _ = os.ReadDir(dir)
 	if deleteArticle.StatusCode != http.StatusNoContent || len(files) != 0 {
 		t.Fatalf("article delete status/files = %d/%#v", deleteArticle.StatusCode, files)
+	}
+}
+
+// TestAgentRunTool exercises the tool-execution layer of the agent without any
+// Claude HTTP round-trip: it feeds tool_use inputs straight into runTool and
+// asserts the store is mutated and read tools reflect the change.
+func TestAgentRunTool(t *testing.T) {
+	agent := newAgentService(newMemoryStore(), "", "", "")
+	ctx := context.Background()
+
+	// create_skill
+	_, sentinel, mutation := agent.runTool(ctx, "create_skill", json.RawMessage(`{"name":"Go","description":"backend"}`))
+	if sentinel != "ok" || mutation == "" {
+		t.Fatalf("create_skill sentinel/mutation = %q/%q", sentinel, mutation)
+	}
+
+	// create_employee referencing the skill
+	out, sentinel, mutation := agent.runTool(ctx, "create_employee",
+		json.RawMessage(`{"name":"Jane Doe","email":"jane@basf.com","department":"R&D","skills":[{"name":"go","rating":8}]}`))
+	if sentinel != "ok" || mutation == "" {
+		t.Fatalf("create_employee sentinel/mutation = %q/%q (out=%s)", sentinel, mutation, out)
+	}
+
+	// find_experts should now return Jane
+	out, sentinel, _ = agent.runTool(ctx, "find_experts", json.RawMessage(`{"skill":"go"}`))
+	if sentinel != "ok" {
+		t.Fatalf("find_experts sentinel = %q", sentinel)
+	}
+	var experts []Employee
+	if err := json.Unmarshal([]byte(out), &experts); err != nil {
+		t.Fatalf("find_experts output not JSON: %v", err)
+	}
+	if len(experts) != 1 || experts[0].Name != "Jane Doe" {
+		t.Fatalf("find_experts = %#v, want one Jane Doe", experts)
+	}
+
+	// invalid input is reported as an error, not a panic
+	_, sentinel, mutation = agent.runTool(ctx, "create_employee", json.RawMessage(`{"name":"","email":"bad"}`))
+	if sentinel != resultError || mutation != "" {
+		t.Fatalf("invalid create_employee sentinel/mutation = %q/%q, want error", sentinel, mutation)
+	}
+
+	// unknown tool
+	if _, sentinel, _ = agent.runTool(ctx, "no_such_tool", json.RawMessage(`{}`)); sentinel != resultError {
+		t.Fatalf("unknown tool sentinel = %q, want error", sentinel)
 	}
 }

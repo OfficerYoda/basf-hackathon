@@ -74,12 +74,16 @@ func main() {
 	if address == "" {
 		address = ":8080"
 	}
+	agent := newAgentService(&postgresStore{db: db}, os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("BASE_URL"), os.Getenv("LLM_MODEL"))
+	if !agent.enabled() {
+		log.Println("ANTHROPIC_API_KEY or BASE_URL not set — /api/agent will return 503")
+	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           newHandler(&postgresStore{db: db}, attachmentDir),
+		Handler:           newHandler(&postgresStore{db: db}, attachmentDir, agent),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	log.Printf("listening on http://localhost%s", address)

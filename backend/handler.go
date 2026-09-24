@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,26 @@ import (
 //go:embed index.html
 var web embed.FS
 
-func newHandler(data store, attachmentDir string) http.Handler {
+func newHandler(data store, attachmentDir string, agent *agentService) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/agent", func(response http.ResponseWriter, request *http.Request) {
+		if !agent.enabled() {
+			writeError(response, http.StatusServiceUnavailable, "the AI assistant is not configured on this server")
+			return
+		}
+		transcript, ok := decodeAgentRequest(response, request)
+		if !ok {
+			return
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), 85*time.Second)
+		defer cancel()
+		reply, err := agent.handle(ctx, transcript)
+		if err != nil {
+			writeError(response, http.StatusBadGateway, "the assistant could not complete the request")
+			return
+		}
+		writeJSON(response, http.StatusOK, reply)
+	})
 	mux.HandleFunc("GET /health", func(response http.ResponseWriter, request *http.Request) {
 		if err := data.Healthy(request.Context()); err != nil {
 			writeError(response, http.StatusServiceUnavailable, "database unavailable")
@@ -500,6 +519,30 @@ func decodeSkillUpdate(response http.ResponseWriter, request *http.Request) (Ski
 		return SkillDefinition{}, false
 	}
 	return SkillDefinition{Description: strings.TrimSpace(body.Description)}, true
+}
+
+// decodeAgentRequest reads the running chat transcript the frontend posts to
+// /api/agent. Only role + text content is accepted; empty transcripts are
+// rejected.
+func decodeAgentRequest(response http.ResponseWriter, request *http.Request) ([]ClientMessage, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Messages []ClientMessage `json:"messages"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return nil, false
+	}
+	if len(body.Messages) == 0 {
+		writeError(response, http.StatusBadRequest, "messages are required")
+		return nil, false
+	}
+	for i := range body.Messages {
+		body.Messages[i].Content = strings.TrimSpace(body.Messages[i].Content)
+	}
+	return body.Messages, true
 }
 
 func resourceID(response http.ResponseWriter, request *http.Request, resource string) (int64, bool) {
