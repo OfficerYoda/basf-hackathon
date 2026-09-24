@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Spotlight from '../components/Spotlight/Spotlight'
 import ChatPanel from '../components/ChatPanel'
+import Logo from '../components/Logo'
 
 const suggestions = [
   'who knows python',
@@ -22,11 +23,12 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen px-4">
       <div className="w-full max-w-xl flex flex-col items-center gap-8">
         {/* Wordmark */}
-        <div className="text-center">
+        <div className="flex flex-col items-center text-center gap-3">
+          <Logo className="w-10 h-10 text-[var(--color-accent)]" />
           <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
-            Skill<span className="text-[var(--color-accent)]">Radar</span>
+            Orbit
           </h1>
-          <p className="text-sm text-[var(--color-muted)] mt-2">
+          <p className="text-sm text-[var(--color-muted)] -mt-1">
             Search employees · discover expertise · preserve knowledge
           </p>
         </div>

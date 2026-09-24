@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Skill Radar API
+  title: Orbit API
   description: |
     Findet vorhandene Kompetenzen (Mitarbeiter/Skills) und dokumentiertes Wissen
     (Artikel/Anhänge) im Unternehmen auffindbar. Begriffe folgen dem Glossar in

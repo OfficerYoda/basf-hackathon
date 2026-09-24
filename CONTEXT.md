@@ -1,4 +1,4 @@
-# Skill Radar und Wissensretter
+# Orbit und Wissensretter
 
 Dieser Kontext macht vorhandene Kompetenzen und dokumentiertes Wissen im Unternehmen auffindbar.
 
