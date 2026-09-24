@@ -23,6 +23,11 @@
     .skill-row { display: grid; grid-template-columns: 1fr 5rem auto; gap: .4rem; align-items: end; margin-bottom: .5rem; }
     .skill-row label { margin: 0; font-size: .85rem; }
     #employees { display: grid; gap: 1rem; }
+    .search { grid-column: 1 / -1; }
+    .search-fields { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: .75rem; align-items: end; }
+    .search-fields label { margin: 0; }
+    .search-results { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+    .search-results > section { min-width: 0; }
     article h3 { margin: 0 0 .25rem; }
     article p { margin: .25rem 0 1rem; color: #516059; }
     .skills { display: flex; gap: .45rem; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -33,12 +38,28 @@
     .attachment-form label { margin: 0; flex: 1; }
     #message { min-height: 1.5rem; color: #a22020; }
     pre { white-space: pre-wrap; font: inherit; color: #263c33; }
-    @media (max-width: 760px) { main { grid-template-columns: 1fr; } header { padding-block: 2rem; } }
+    @media (max-width: 760px) { main, .search-fields, .search-results { grid-template-columns: 1fr; } header { padding-block: 2rem; } }
   </style>
 </head>
 <body>
   <header><h1>Skill Radar</h1><p>Kompetenzen im Team finden und die eigene Selbsteinschätzung aktuell halten.</p></header>
   <main>
+    <section class="search" aria-labelledby="search-title">
+      <form id="search-form">
+        <h2 id="search-title">Mitarbeiter und Wissen durchsuchen</h2>
+        <div class="search-fields">
+          <label>Freitext <input id="search-text" type="search" placeholder="Name, Artikeltitel oder Inhalt"></label>
+          <label>Skills (kommagetrennt) <input id="search-skills" placeholder="python, postgresql"></label>
+          <label>Verknüpfung <select id="search-mode"><option value="and">UND</option><option value="or">ODER</option></select></label>
+          <button type="submit">Suchen</button>
+        </div>
+        <p id="search-message" role="alert"></p>
+      </form>
+      <div class="search-results" aria-live="polite">
+        <section><h2>Mitarbeitertreffer</h2><div id="employee-results"></div></section>
+        <section><h2>Artikeltreffer</h2><div id="article-results"></div></section>
+      </div>
+    </section>
     <section aria-labelledby="form-title">
       <form id="employee-form">
         <h2 id="form-title">Mitarbeiter anlegen</h2>
@@ -88,6 +109,17 @@
       const span = document.createElement('span');
       span.textContent = value;
       return span.innerHTML;
+    }
+
+    async function search() {
+      document.querySelector('#search-message').textContent = '';
+      const parameters = new URLSearchParams({ q: document.querySelector('#search-text').value, mode: document.querySelector('#search-mode').value });
+      document.querySelector('#search-skills').value.split(',').map(value => value.trim()).filter(Boolean).forEach(skill => parameters.append('skills', skill));
+      const response = await fetch(`/api/search?${parameters}`);
+      if (!response.ok) throw new Error('Suche fehlgeschlagen');
+      const results = await response.json();
+      document.querySelector('#employee-results').innerHTML = results.employees.map(employee => `<article><h3>${escapeHTML(employee.name)}</h3><p>${escapeHTML(employee.email)}</p><div class="skills">${employee.skills.map(skill => `<span class="skill">${escapeHTML(skill.name)}</span>`).join('')}</div></article>`).join('') || '<p>Keine Mitarbeitertreffer.</p>';
+      document.querySelector('#article-results').innerHTML = results.articles.map(article => `<article><h3>${escapeHTML(article.title)}</h3><p>${escapeHTML(article.description)}</p><div class="skills">${article.skills.map(skill => `<span class="skill">${escapeHTML(skill)}</span>`).join('')}</div></article>`).join('') || '<p>Keine Artikeltreffer.</p>';
     }
 
     function resetForm() {
@@ -211,7 +243,9 @@
     document.querySelector('#add-skill').onclick = () => addSkill();
     document.querySelector('#cancel').onclick = resetForm;
     document.querySelector('#article-cancel').onclick = resetArticleForm;
+    document.querySelector('#search-form').onsubmit = event => { event.preventDefault(); search().catch(error => document.querySelector('#search-message').textContent = error.message); };
     load().then(loadArticles).catch(() => message.textContent = 'Daten konnten nicht geladen werden.');
+    search().catch(error => document.querySelector('#search-message').textContent = error.message);
   </script>
 </body>
 </html>

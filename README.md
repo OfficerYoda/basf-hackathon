@@ -23,3 +23,5 @@ go vet ./...
 ```
 
 Die JSON-API liegt unter `/api/employees` und `/api/articles`. Anhänge werden per Multipart-Upload an `/api/articles/{id}/attachments` angehängt und über `/api/attachments/{id}` heruntergeladen oder gelöscht.
+
+`GET /api/search` liefert getrennte Arrays `employees` und `articles`. `q` sucht ohne Beachtung der Groß-/Kleinschreibung in Mitarbeiternamen sowie Artikeltitel und Markdown-Inhalt. Skills werden als wiederholte Parameter übergeben, zum Beispiel `skills=python&skills=postgresql`; `mode=and` (Standard) verlangt alle, `mode=or` mindestens einen Skill. Freitext und Skill-Filter müssen beide passen. Eine Anfrage ohne Freitext und Skills liefert alle Einträge in ihrer normalen Reihenfolge.

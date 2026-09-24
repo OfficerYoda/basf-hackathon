@@ -420,6 +420,65 @@ func TestContributorCannotBeDeleted(t *testing.T) {
 	}
 }
 
+func TestSearchEmployeesAndArticles(t *testing.T) {
+	data := newMemoryStore()
+	ada, _ := data.Create(context.Background(), Employee{Name: "Ada Lovelace", Email: "ada@example.com", Skills: []Skill{{Name: "python", Rating: 9}, {Name: "postgresql", Rating: 8}}})
+	grace, _ := data.Create(context.Background(), Employee{Name: "Grace Hopper", Email: "grace@example.com", Skills: []Skill{{Name: "python", Rating: 8}, {Name: "leadership", Rating: 10}}})
+	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "PostgreSQL restore", Description: "Runbook", Content: "Use pg_restore for recovery.", Skills: []string{"postgresql"}, ContributorIDs: []int64{ada.ID}})
+	_, _ = data.CreateArticle(context.Background(), ArticleInput{Title: "Python mentoring", Description: "Guide", Content: "How to coach a team.", Skills: []string{"python", "leadership"}, ContributorIDs: []int64{grace.ID}})
+	server := httptest.NewServer(newHandler(data, t.TempDir()))
+	defer server.Close()
+
+	tests := []struct {
+		name          string
+		query         string
+		employeeNames []string
+		articleTitles []string
+	}{
+		{name: "empty returns everything", employeeNames: []string{"Ada Lovelace", "Grace Hopper"}, articleTitles: []string{"PostgreSQL restore", "Python mentoring"}},
+		{name: "empty skill is ignored", query: "skills=", employeeNames: []string{"Ada Lovelace", "Grace Hopper"}, articleTitles: []string{"PostgreSQL restore", "Python mentoring"}},
+		{name: "text searches article titles", query: "q=PostgreSQL", articleTitles: []string{"PostgreSQL restore"}},
+		{name: "text searches article content", query: "q=coach", articleTitles: []string{"Python mentoring"}},
+		{name: "text matching is case insensitive", query: "q=ADA", employeeNames: []string{"Ada Lovelace"}},
+		{name: "and requires every skill", query: "skills=python&skills=leadership&mode=and", employeeNames: []string{"Grace Hopper"}, articleTitles: []string{"Python mentoring"}},
+		{name: "or requires any skill", query: "skills=postgresql&skills=leadership&mode=or", employeeNames: []string{"Ada Lovelace", "Grace Hopper"}, articleTitles: []string{"PostgreSQL restore", "Python mentoring"}},
+		{name: "text and skills combine", query: "q=coach&skills=python&skills=leadership&mode=and", articleTitles: []string{"Python mentoring"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := request(t, server.Client(), http.MethodGet, server.URL+"/api/search?"+test.query, nil)
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d", response.StatusCode)
+			}
+			var result struct {
+				Employees []Employee `json:"employees"`
+				Articles  []Article  `json:"articles"`
+			}
+			if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+				t.Fatal(err)
+			}
+			employeeNames := make([]string, len(result.Employees))
+			for index, employee := range result.Employees {
+				employeeNames[index] = employee.Name
+			}
+			articleTitles := make([]string, len(result.Articles))
+			for index, article := range result.Articles {
+				articleTitles[index] = article.Title
+			}
+			if strings.Join(employeeNames, ",") != strings.Join(test.employeeNames, ",") || strings.Join(articleTitles, ",") != strings.Join(test.articleTitles, ",") {
+				t.Fatalf("employees/articles = %v/%v, want %v/%v", employeeNames, articleTitles, test.employeeNames, test.articleTitles)
+			}
+		})
+	}
+
+	invalid := request(t, server.Client(), http.MethodGet, server.URL+"/api/search?mode=invalid", nil)
+	invalid.Body.Close()
+	if invalid.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid mode status = %d", invalid.StatusCode)
+	}
+}
+
 func uploadAttachment(t *testing.T, client *http.Client, url, name, contentType, content string) *http.Response {
 	t.Helper()
 	var body bytes.Buffer

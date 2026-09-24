@@ -63,6 +63,11 @@ type ArticleInput struct {
 	ContributorIDs []int64  `json:"contributor_ids"`
 }
 
+type SearchResults struct {
+	Employees []Employee `json:"employees"`
+	Articles  []Article  `json:"articles"`
+}
+
 func (article *ArticleInput) normalizeAndValidate() error {
 	article.Title = strings.TrimSpace(article.Title)
 	article.Description = strings.TrimSpace(article.Description)
@@ -608,6 +613,52 @@ func newHandler(data store, attachmentDir string) http.Handler {
 		}
 		writeJSON(response, http.StatusOK, employees)
 	})
+	mux.HandleFunc("GET /api/search", func(response http.ResponseWriter, request *http.Request) {
+		mode := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("mode")))
+		if mode == "" {
+			mode = "and"
+		}
+		if mode != "and" && mode != "or" {
+			writeError(response, http.StatusBadRequest, "mode must be and or or")
+			return
+		}
+		query := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("q")))
+		skills := request.URL.Query()["skills"]
+		filteredSkills := skills[:0]
+		for _, skill := range skills {
+			if skill = strings.ToLower(strings.TrimSpace(skill)); skill != "" {
+				filteredSkills = append(filteredSkills, skill)
+			}
+		}
+		skills = filteredSkills
+		employees, err := data.List(request.Context())
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, "could not search employees")
+			return
+		}
+		articles, err := data.ListArticles(request.Context())
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, "could not search articles")
+			return
+		}
+		results := SearchResults{Employees: []Employee{}, Articles: []Article{}}
+		for _, employee := range employees {
+			names := make([]string, len(employee.Skills))
+			for index, skill := range employee.Skills {
+				names[index] = skill.Name
+			}
+			if (query == "" || strings.Contains(strings.ToLower(employee.Name), query)) && matchesSkills(names, skills, mode) {
+				results.Employees = append(results.Employees, employee)
+			}
+		}
+		for _, article := range articles {
+			textMatches := query == "" || strings.Contains(strings.ToLower(article.Title), query) || strings.Contains(strings.ToLower(article.Content), query)
+			if textMatches && matchesSkills(article.Skills, skills, mode) {
+				results.Articles = append(results.Articles, article)
+			}
+		}
+		writeJSON(response, http.StatusOK, results)
+	})
 	mux.HandleFunc("POST /api/employees", func(response http.ResponseWriter, request *http.Request) {
 		employee, ok := decodeEmployee(response, request)
 		if !ok {
@@ -878,6 +929,25 @@ func newHandler(data store, attachmentDir string) http.Handler {
 	return mux
 }
 
+func matchesSkills(entrySkills, selected []string, mode string) bool {
+	if len(selected) == 0 {
+		return true
+	}
+	available := make(map[string]bool, len(entrySkills))
+	for _, skill := range entrySkills {
+		available[skill] = true
+	}
+	for _, skill := range selected {
+		if mode == "or" && available[skill] {
+			return true
+		}
+		if mode == "and" && !available[skill] {
+			return false
+		}
+	}
+	return mode == "and"
+}
+
 func decodeEmployee(response http.ResponseWriter, request *http.Request) (Employee, bool) {
 	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
 	decoder := json.NewDecoder(request.Body)
@@ -993,7 +1063,7 @@ func seed(ctx context.Context, db *sql.DB, attachmentDir string) error {
 		}
 	}
 	articles := []ArticleInput{
-		{Title: "PostgreSQL im Notfall wiederherstellen", Description: "Kurzanleitung für die Wiederherstellung der Skill-Radar-Datenbank.", Content: "# Wiederherstellung\n\n1. Backup prüfen\n2. Datenbank stoppen\n3. Restore ausführen", Skills: []string{"postgresql"}, ContributorIDs: []int64{1, 2}},
+		{Title: "PostgreSQL im Notfall wiederherstellen", Description: "Kurzanleitung für die Wiederherstellung der Skill-Radar-Datenbank.", Content: "# Wiederherstellung\n\n1. Backup prüfen\n2. Datenbank stoppen\n3. Restore ausführen", Skills: []string{"postgresql", "python"}, ContributorIDs: []int64{1, 2}},
 		{Title: "Git-Änderungen sicher veröffentlichen", Description: "Der gemeinsame Ablauf für kleine, nachvollziehbare Änderungen.", Content: "# Git-Ablauf\n\n- Branch aktualisieren\n- Tests ausführen\n- Commit erstellen", Skills: []string{"git"}, ContributorIDs: []int64{3}},
 	}
 	for _, article := range articles {
