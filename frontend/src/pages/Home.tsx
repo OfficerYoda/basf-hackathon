@@ -7,6 +7,7 @@ const suggestions = [
   'who knows python',
   'find cryptography experts',
   'browse employees',
+  'show skill galaxy',
   "I'm leaving the company",
 ]
 
@@ -21,14 +22,14 @@ export default function Home() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4">
-      <div className="w-full max-w-xl flex flex-col items-center gap-8">
+      <div className="w-full max-w-2xl flex flex-col items-center gap-8">
         {/* Wordmark */}
         <div className="flex flex-col items-center text-center gap-3">
-          <Logo className="w-10 h-10 text-[var(--color-accent)]" />
-          <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
+          <Logo className="w-12 h-12 text-[var(--color-accent)]" />
+          <h1 className="text-4xl font-bold tracking-tight text-[var(--color-text)]">
             Orbit
           </h1>
-          <p className="text-sm text-[var(--color-muted)] -mt-1">
+          <p className="text-base text-[var(--color-muted)] -mt-1">
             Search employees · discover expertise · preserve knowledge
           </p>
         </div>
@@ -44,7 +45,7 @@ export default function Home() {
             <button
               key={hint}
               onClick={() => openChat(hint)}
-              className="px-2.5 py-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 text-xs font-mono transition-colors"
+              className="px-3 py-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 text-[13px] font-mono transition-colors"
             >
               {hint}
             </button>

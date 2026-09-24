@@ -66,6 +66,7 @@ export function useSpotlight(onOpenChat?: (prompt?: string) => void) {
           onOpenChat?.("I'm leaving the company and want to document my knowledge before I go.")
           break
         case 'show_heatmap':  navigate('/employees'); break
+        case 'show_galaxy':   navigate('/galaxy'); break
         case 'wissensbasis':  navigate('/wissensbasis'); break
         case 'find_skill':
           navigate(`/employees?skill=${encodeURIComponent(intent.skill)}`)
