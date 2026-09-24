@@ -8,7 +8,6 @@ const navItems = [
   { to: '/',             icon: '⌕', label: 'Home' },
   { to: '/employees',    icon: '∴', label: 'Employees' },
   { to: '/skills',       icon: '#', label: 'Skills' },
-  { to: '/heatmap',      icon: '▦', label: 'Heatmap' },
   { to: '/wissensbasis', icon: '≡', label: 'Knowledge Base' },
 ]
 

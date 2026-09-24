@@ -63,7 +63,7 @@ export function useSpotlight(onOpenChat?: () => void) {
         case 'exit_interview':
           onOpenChat?.()
           break
-        case 'show_heatmap':  navigate('/heatmap'); break
+        case 'show_heatmap':  navigate('/employees'); break
         case 'wissensbasis':  navigate('/wissensbasis'); break
         case 'find_skill':
           navigate(`/employees?skill=${encodeURIComponent(intent.skill)}`)
