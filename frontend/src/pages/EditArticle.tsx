@@ -18,7 +18,7 @@ export default function EditArticle() {
   }
 
   return (
-    <div className="p-5 max-w-lg mx-auto">
+    <div className="p-5">
       <button
         onClick={() => navigate(`/wissensbasis/${article.id}`)}
         className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)] mb-5 transition-colors"

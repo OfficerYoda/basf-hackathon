@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import Spotlight from './Spotlight/Spotlight'
 import ChatPanel from './ChatPanel'
+import Logo from './Logo'
 import { useData } from '../context/DataContext'
 
 const navItems = [
@@ -54,9 +55,9 @@ export default function Layout() {
         {/* Logo */}
         <div className={`flex items-center h-12 border-b border-[var(--color-border)] shrink-0 ${sidebarCollapsed ? 'justify-center px-0' : 'gap-2.5 px-4'}`}>
           <div className="w-6 h-6 rounded-[var(--radius-sm)] bg-[var(--color-accent)] flex items-center justify-center shrink-0">
-            <span className="text-black font-bold text-[10px] leading-none">SR</span>
+            <Logo className="w-4 h-4 text-black" />
           </div>
-          {!sidebarCollapsed && <span className="text-sm font-semibold text-[var(--color-text)] tracking-tight">Skill Radar</span>}
+          {!sidebarCollapsed && <span className="text-sm font-semibold text-[var(--color-text)] tracking-tight">Orbit</span>}
         </div>
 
         {/* Nav */}

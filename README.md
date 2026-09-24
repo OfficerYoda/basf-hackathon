@@ -1,4 +1,4 @@
-# Skill Radar
+# Orbit
 
 Kleine Go/Postgres-Anwendung zur Pflege von Mitarbeitern, ihren selbst eingeschätzten Skills und gemeinsamen Wissensartikeln.
 

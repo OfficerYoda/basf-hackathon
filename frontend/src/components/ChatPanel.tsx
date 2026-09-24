@@ -19,7 +19,7 @@ interface Props {
 }
 
 const GREETING =
-  "Hi! I'm the Skill Radar assistant. Ask me to find experts, or tell me to create an employee, skill, or knowledge-base article."
+  "Hi! I'm the Orbit assistant. Ask me to find experts, or tell me to create an employee, skill, or knowledge-base article."
 
 export default function ChatPanel({ onClose, initialPrompt }: Props) {
   const { reload } = useData()
