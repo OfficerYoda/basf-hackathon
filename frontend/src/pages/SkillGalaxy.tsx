@@ -30,6 +30,16 @@ function point(index: number, total: number, rx: number, ry: number, offset = -M
   return { x: 500 + Math.cos(angle) * rx, y: 310 + Math.sin(angle) * ry }
 }
 
+function skillLabelLines(label: string) {
+  if (label.length <= 8) return [label]
+  const middle = Math.ceil(label.length / 2)
+  const separators = [...label.matchAll(/[-/ ]/g)].map(match => match.index + 1)
+  const split = separators.sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle))[0] ?? middle
+  const first = label.slice(0, split).trim()
+  const second = label.slice(split).trim()
+  return [first.slice(0, 9), second.length > 9 ? `${second.slice(0, 8)}…` : second]
+}
+
 export default function SkillGalaxy() {
   const { employees, articles, skillDefs } = useData()
   const navigate = useNavigate()
@@ -138,8 +148,8 @@ export default function SkillGalaxy() {
         </div>
 
         {focusedNode && (
-          <div className="absolute right-4 top-4 z-20 max-w-56 rounded-[var(--radius)] border border-[var(--color-border-high)] bg-[var(--color-surface)]/95 px-3 py-2 shadow-[var(--shadow-sm)]">
-            <p className="truncate text-xs font-semibold text-[var(--color-text)]">{focusedNode.label}</p>
+          <div className="absolute right-4 top-4 z-20 max-w-72 rounded-[var(--radius)] border border-[var(--color-border-high)] bg-[var(--color-surface)]/95 px-3 py-2 shadow-[var(--shadow-sm)]">
+            <p className="text-xs font-semibold leading-relaxed text-[var(--color-text)]">{focusedNode.label}</p>
             <p className="mt-0.5 font-mono text-[10px] uppercase text-[var(--color-accent)]">{focusedNode.meta} · {focusedConnections} links</p>
           </div>
         )}
@@ -172,8 +182,9 @@ export default function SkillGalaxy() {
           {nodes.map((node, index) => {
             const style = nodeStyle[node.kind]
             const focused = isFocused(node.id)
-            const label = node.label.length > 24 ? `${node.label.slice(0, 22)}…` : node.label
             const [firstName, ...rest] = node.label.split(' ')
+            const skillLines = node.kind === 'skill' ? skillLabelLines(node.label) : []
+            const skillFontSize = Math.min(8.5, 64 / Math.max(...skillLines.map(line => line.length), 1))
             return (
               <g
                 key={node.id}
@@ -200,10 +211,10 @@ export default function SkillGalaxy() {
                 {node.kind === 'skill' && <circle cx={node.x} cy={node.y} r={style.radius + 7} fill="none" stroke="#e8ff4d" opacity="0.16" />}
                 <text
                   x={node.x}
-                  y={node.kind === 'skill' ? node.y + 3 : node.y - 2}
+                  y={node.kind === 'skill' ? node.y + 3 : node.kind === 'article' ? node.y + 5 : node.y - 2}
                   textAnchor="middle"
                   fill={node.kind === 'skill' ? '#000000' : '#f2f2f2'}
-                  fontSize={node.kind === 'skill' ? 10 : 11}
+                  fontSize={node.kind === 'skill' ? skillFontSize : node.kind === 'article' ? 16 : 11}
                   fontWeight="600"
                   fontFamily="Inter, system-ui, sans-serif"
                 >
@@ -212,12 +223,18 @@ export default function SkillGalaxy() {
                       <tspan x={node.x} dy="-0.2em">{firstName}</tspan>
                       {rest.length > 0 && <tspan x={node.x} dy="1.15em">{rest.join(' ')}</tspan>}
                     </>
-                  ) : node.kind === 'article' ? '≡' : label}
+                  ) : node.kind === 'article' ? '≡' : (
+                    skillLines.map((line, lineIndex) => (
+                      <tspan key={lineIndex} x={node.x} dy={lineIndex === 0 ? (skillLines.length > 1 ? '-0.55em' : '0') : '1.05em'}>{line}</tspan>
+                    ))
+                  )}
                 </text>
-                {node.kind === 'article' && (
-                  <text x={node.x} y={node.y + style.radius + 17} textAnchor="middle" fill="#888888" fontSize="10" fontFamily="Inter, system-ui, sans-serif">
-                    {label}
-                  </text>
+                {node.kind === 'article' && activeId === node.id && (
+                  <foreignObject x={node.x - 110} y={node.y + style.radius + 8} width="220" height="64" pointerEvents="none">
+                    <div className="text-center text-[10px] leading-tight text-[var(--color-sub)]">
+                      {node.label}
+                    </div>
+                  </foreignObject>
                 )}
               </g>
             )
