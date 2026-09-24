@@ -24,7 +24,7 @@ export default function Wissensbasis() {
     <div className="p-5 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--color-text)]">Wissensbasis</h1>
+          <h1 className="text-lg font-semibold text-[var(--color-text)]">Knowledge Base</h1>
           <p className="text-xs text-[var(--color-muted)] mt-0.5">{articles.length} articles</p>
         </div>
         <div className="flex items-center gap-2">
@@ -54,7 +54,8 @@ export default function Wissensbasis() {
           {filtered.map(article => (
             <div
               key={article.id}
-              className={`rounded-[var(--radius)] bg-[var(--color-surface)] border transition-colors p-4 flex flex-col gap-3 ${
+              onClick={() => navigate(`/wissensbasis/${article.id}`)}
+              className={`rounded-[var(--radius)] bg-[var(--color-surface)] border transition-colors p-4 flex flex-col gap-3 cursor-pointer ${
                 article.id === highlightId
                   ? 'border-[var(--color-accent)]/40'
                   : 'border-[var(--color-border)] hover:border-[var(--color-border-high)]'

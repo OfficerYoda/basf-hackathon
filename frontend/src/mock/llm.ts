@@ -66,7 +66,7 @@ export function parseIntent(input: string): CommandResult | null {
   if (/wissensbasis|knowledge\s*base|artikel|article/.test(q)) {
     return {
       intent: { type: 'wissensbasis' },
-      label: 'Open Wissensbasis',
+      label: 'Open Knowledge Base',
       description: 'Browse knowledge-base articles',
       icon: '≡',
     }

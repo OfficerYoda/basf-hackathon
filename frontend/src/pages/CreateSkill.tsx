@@ -5,21 +5,30 @@ import FormField, { inputCls, textareaCls } from '../components/FormField'
 
 export default function CreateSkill() {
   const navigate = useNavigate()
-  const { skillDefs, addSkillDef, nextSkillDefId } = useData()
+  const { skillDefs, addSkillDef } = useData()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const nameNorm = name.trim().toLowerCase()
   const duplicate = skillDefs.some(s => s.name === nameNorm)
   const valid = nameNorm.length > 0 && description.trim().length > 0 && !duplicate
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
-    addSkillDef({ id: nextSkillDefId(), name: nameNorm, description: description.trim() })
-    setSaved(true)
-    setTimeout(() => navigate('/skills'), 800)
+    if (!valid || submitting) return
+    setError(null)
+    setSubmitting(true)
+    try {
+      await addSkillDef(nameNorm, description.trim())
+      setSaved(true)
+      setTimeout(() => navigate('/skills'), 800)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'could not create skill')
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -80,13 +89,14 @@ export default function CreateSkill() {
           ) : (
             <button
               type="submit"
-              disabled={!valid}
+              disabled={!valid || submitting}
               className="px-4 py-2 rounded-[var(--radius-sm)] bg-[var(--color-accent)] text-black text-xs font-semibold hover:opacity-90 disabled:opacity-30 transition-opacity"
             >
-              Create Skill
+              {submitting ? 'Creating…' : 'Create Skill'}
             </button>
           )}
         </div>
+        {error && <p className="text-xs text-red-400">{error}</p>}
       </form>
     </div>
   )

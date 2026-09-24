@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,11 +41,11 @@ type memoryStore struct {
 	nextArticle    int64
 	articles       map[int64]Article
 	nextAttachment int64
-	skills         map[string]bool
+	skills         map[string]string
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, nextAttachment: 1, skills: map[string]bool{}}
+	return &memoryStore{next: 1, employees: map[int64]Employee{}, nextArticle: 1, articles: map[int64]Article{}, nextAttachment: 1, skills: map[string]string{}}
 }
 
 func (s *memoryStore) Healthy(context.Context) error { return nil }
@@ -72,7 +73,9 @@ func (s *memoryStore) Create(_ context.Context, employee Employee) (Employee, er
 	s.next++
 	s.employees[employee.ID] = employee
 	for _, skill := range employee.Skills {
-		s.skills[skill.Name] = true
+		if _, ok := s.skills[skill.Name]; !ok {
+			s.skills[skill.Name] = ""
+		}
 	}
 	return employee, nil
 }
@@ -84,7 +87,9 @@ func (s *memoryStore) Update(_ context.Context, id int64, employee Employee) (Em
 	employee.ID = id
 	s.employees[id] = employee
 	for _, skill := range employee.Skills {
-		s.skills[skill.Name] = true
+		if _, ok := s.skills[skill.Name]; !ok {
+			s.skills[skill.Name] = ""
+		}
 	}
 	return employee, nil
 }
@@ -196,6 +201,40 @@ func (s *memoryStore) DeleteAttachment(_ context.Context, id int64) error {
 	return errAttachmentNotFound
 }
 
+func (s *memoryStore) ListSkills(context.Context) ([]SkillDefinition, error) {
+	names := make([]string, 0, len(s.skills))
+	for name := range s.skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]SkillDefinition, 0, len(names))
+	for _, name := range names {
+		result = append(result, SkillDefinition{Name: name, Description: s.skills[name]})
+	}
+	return result, nil
+}
+
+func (s *memoryStore) CreateSkill(_ context.Context, skill SkillDefinition) (SkillDefinition, error) {
+	s.skills[skill.Name] = skill.Description
+	return skill, nil
+}
+
+func (s *memoryStore) UpdateSkill(_ context.Context, name string, skill SkillDefinition) (SkillDefinition, error) {
+	if _, ok := s.skills[name]; !ok {
+		return SkillDefinition{}, errSkillNotFound
+	}
+	s.skills[name] = skill.Description
+	return SkillDefinition{Name: name, Description: skill.Description}, nil
+}
+
+func (s *memoryStore) DeleteSkill(_ context.Context, name string) error {
+	if _, ok := s.skills[name]; !ok {
+		return errSkillNotFound
+	}
+	delete(s.skills, name)
+	return nil
+}
+
 func (s *memoryStore) articleFromInput(input ArticleInput) (Article, error) {
 	contributors := make([]Employee, 0, len(input.ContributorIDs))
 	for _, id := range input.ContributorIDs {
@@ -206,7 +245,7 @@ func (s *memoryStore) articleFromInput(input ArticleInput) (Article, error) {
 		contributors = append(contributors, employee)
 	}
 	for _, name := range input.Skills {
-		if !s.skills[name] {
+		if _, ok := s.skills[name]; !ok {
 			return Article{}, errInvalidReference
 		}
 	}
@@ -302,6 +341,61 @@ func TestEmployeeLifecycle(t *testing.T) {
 	missingResponse.Body.Close()
 	if missingResponse.StatusCode != http.StatusNotFound {
 		t.Fatalf("deleted employee status = %d", missingResponse.StatusCode)
+	}
+}
+
+func TestSkillLifecycle(t *testing.T) {
+	server := httptest.NewServer(newHandler(newMemoryStore(), t.TempDir()))
+	defer server.Close()
+
+	createResponse := request(t, server.Client(), http.MethodPost, server.URL+"/api/skills", SkillDefinition{
+		Name: "Rust", Description: "Systems programming",
+	})
+	defer createResponse.Body.Close()
+	if createResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", createResponse.StatusCode)
+	}
+	var created SkillDefinition
+	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "rust" {
+		t.Fatalf("created skill name = %q", created.Name)
+	}
+
+	updateResponse := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/rust", map[string]string{
+		"description": "Memory-safe systems programming",
+	})
+	defer updateResponse.Body.Close()
+	if updateResponse.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d", updateResponse.StatusCode)
+	}
+	var updated SkillDefinition
+	if err := json.NewDecoder(updateResponse.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Description != "Memory-safe systems programming" {
+		t.Fatalf("updated description = %q", updated.Description)
+	}
+
+	missingUpdate := request(t, server.Client(), http.MethodPut, server.URL+"/api/skills/nope", map[string]string{
+		"description": "x",
+	})
+	missingUpdate.Body.Close()
+	if missingUpdate.StatusCode != http.StatusNotFound {
+		t.Fatalf("update missing status = %d", missingUpdate.StatusCode)
+	}
+
+	deleteResponse := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/rust", nil)
+	deleteResponse.Body.Close()
+	if deleteResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d", deleteResponse.StatusCode)
+	}
+
+	missingDelete := request(t, server.Client(), http.MethodDelete, server.URL+"/api/skills/rust", nil)
+	missingDelete.Body.Close()
+	if missingDelete.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete missing status = %d", missingDelete.StatusCode)
 	}
 }
 

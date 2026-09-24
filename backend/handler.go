@@ -34,6 +34,55 @@ func newHandler(data store, attachmentDir string) http.Handler {
 		}
 		writeJSON(response, http.StatusOK, employees)
 	})
+	mux.HandleFunc("GET /api/skills", func(response http.ResponseWriter, request *http.Request) {
+		skills, err := data.ListSkills(request.Context())
+		if err != nil {
+			writeError(response, http.StatusInternalServerError, "could not list skills")
+			return
+		}
+		writeJSON(response, http.StatusOK, skills)
+	})
+	mux.HandleFunc("POST /api/skills", func(response http.ResponseWriter, request *http.Request) {
+		skill, ok := decodeSkill(response, request)
+		if !ok {
+			return
+		}
+		created, err := data.CreateSkill(request.Context(), skill)
+		if err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusCreated, created)
+	})
+	mux.HandleFunc("PUT /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
+		name := strings.ToLower(strings.TrimSpace(request.PathValue("name")))
+		if name == "" {
+			writeError(response, http.StatusBadRequest, "invalid skill name")
+			return
+		}
+		update, ok := decodeSkillUpdate(response, request)
+		if !ok {
+			return
+		}
+		updated, err := data.UpdateSkill(request.Context(), name, update)
+		if err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, updated)
+	})
+	mux.HandleFunc("DELETE /api/skills/{name}", func(response http.ResponseWriter, request *http.Request) {
+		name := strings.ToLower(strings.TrimSpace(request.PathValue("name")))
+		if name == "" {
+			writeError(response, http.StatusBadRequest, "invalid skill name")
+			return
+		}
+		if err := data.DeleteSkill(request.Context(), name); err != nil {
+			writeStoreError(response, err)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /api/search", func(response http.ResponseWriter, request *http.Request) {
 		mode := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("mode")))
 		if mode == "" {
@@ -413,6 +462,46 @@ func employeeID(response http.ResponseWriter, request *http.Request) (int64, boo
 	return resourceID(response, request, "employee")
 }
 
+func decodeSkill(response http.ResponseWriter, request *http.Request) (SkillDefinition, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var skill SkillDefinition
+	if err := decoder.Decode(&skill); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	if err := skill.normalizeAndValidate(); err != nil {
+		writeError(response, http.StatusBadRequest, err.Error())
+		return SkillDefinition{}, false
+	}
+	return skill, true
+}
+
+// decodeSkillUpdate reads the body of a skill update. The name comes from the
+// URL path (it is immutable), so only the description is taken from the body.
+func decodeSkillUpdate(response http.ResponseWriter, request *http.Request) (SkillDefinition, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Description string `json:"description"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(response, http.StatusBadRequest, "invalid JSON")
+		return SkillDefinition{}, false
+	}
+	return SkillDefinition{Description: strings.TrimSpace(body.Description)}, true
+}
+
 func resourceID(response http.ResponseWriter, request *http.Request, resource string) (int64, bool) {
 	id, err := strconv.ParseInt(request.PathValue("id"), 10, 64)
 	if err != nil || id < 1 {
@@ -433,6 +522,10 @@ func writeStoreError(response http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errAttachmentNotFound) {
 		writeError(response, http.StatusNotFound, errAttachmentNotFound.Error())
+		return
+	}
+	if errors.Is(err, errSkillNotFound) {
+		writeError(response, http.StatusNotFound, errSkillNotFound.Error())
 		return
 	}
 	if errors.Is(err, errInvalidReference) {

@@ -54,7 +54,7 @@ export function useSpotlight(onOpenChat?: () => void) {
     if (item.kind === 'employee') {
       navigate(`/employees/${item.data.id}`)
     } else if (item.kind === 'article') {
-      navigate(`/wissensbasis?article=${item.data.id}`)
+      navigate(`/wissensbasis/${item.data.id}`)
     } else if (item.kind === 'command') {
       const intent = item.data.intent
       switch (intent.type) {

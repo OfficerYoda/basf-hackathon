@@ -22,7 +22,7 @@ const SCRIPT: { trigger: RegExp; reply: string }[] = [
   },
   {
     trigger: /.*/,
-    reply: "Perfect. I've compiled this into a draft Wissensbasis article under your name. It will appear in the knowledge base once reviewed. Thank you for your contribution. 🎯",
+    reply: "Perfect. I've compiled this into a draft knowledge base article under your name. It will appear in the knowledge base once reviewed. Thank you for your contribution. 🎯",
   },
 ]
 

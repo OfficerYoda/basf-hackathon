@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import Spotlight from './Spotlight/Spotlight'
 import ChatPanel from './ChatPanel'
+import { useData } from '../context/DataContext'
 
 const navItems = [
   { to: '/',             icon: '⌕', label: 'Home' },
   { to: '/employees',    icon: '∴', label: 'Employees' },
   { to: '/skills',       icon: '#', label: 'Skills' },
   { to: '/heatmap',      icon: '▦', label: 'Heatmap' },
-  { to: '/wissensbasis', icon: '≡', label: 'Wissensbasis' },
+  { to: '/wissensbasis', icon: '≡', label: 'Knowledge Base' },
 ]
 
 export default function Layout() {
@@ -16,6 +17,9 @@ export default function Layout() {
   const [chatOpen, setChatOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const location = useLocation()
+  const { loading, error, reload, employees, articles, skillDefs } = useData()
+  // First load = still fetching and nothing cached yet.
+  const initialLoading = loading && !employees.length && !articles.length && !skillDefs.length
 
   const handleGlobalKey = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -99,7 +103,24 @@ export default function Layout() {
             </button>
           </header>
         )}
-        <Outlet />
+        {error && (
+          <div className="mx-5 mt-3 flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--radius-sm)] border border-red-500/30 bg-red-500/10 text-xs text-red-300">
+            <span>Backend unavailable: {error}</span>
+            <button
+              onClick={() => void reload()}
+              className="shrink-0 px-2 py-1 rounded-[var(--radius-sm)] border border-red-500/40 text-red-200 hover:bg-red-500/20 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {initialLoading ? (
+          <div className="flex items-center justify-center h-[60vh] text-sm text-[var(--color-muted)]">
+            Loading…
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </main>
 
       {/* Spotlight modal (non-home pages) */}

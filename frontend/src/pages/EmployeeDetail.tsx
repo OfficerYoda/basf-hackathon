@@ -1,13 +1,18 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import SkillBadge from '../components/SkillBadge'
 import RatingBar from '../components/RatingBar'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 export default function EmployeeDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { employees } = useData()
+  const { employees, removeEmployee } = useData()
   const employee = employees.find(e => e.id === Number(id))
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   if (!employee) {
     return (
@@ -20,17 +25,49 @@ export default function EmployeeDetail() {
 
   const initials = employee.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 
+  async function handleDelete() {
+    if (!employee) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await removeEmployee(employee.id)
+      navigate('/employees')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'could not delete employee')
+      setDeleting(false)
+      setConfirmOpen(false)
+    }
+  }
+
   return (
     <div className="p-5 max-w-lg mx-auto">
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)] mb-5 transition-colors"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        Employees
-      </button>
+      <div className="flex items-center justify-between mb-5">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Employees
+        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(`/employees/${employee.id}/edit`)}
+            className="px-3 py-1.5 rounded-[var(--radius-sm)] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-border-high)] text-xs text-[var(--color-sub)] transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setConfirmOpen(true)}
+            className="px-3 py-1.5 rounded-[var(--radius-sm)] border border-red-500/30 text-red-300 hover:bg-red-500/10 text-xs transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
 
       <div className="rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden">
         <div className="h-px bg-[var(--color-accent)]" />
@@ -65,6 +102,15 @@ export default function EmployeeDetail() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete employee"
+        message={`Delete ${employee.name}? This removes their profile and skill ratings. This cannot be undone.`}
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }
