@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { sendAgentMessage, type AgentMessage, type AgentAction } from '../api/agent'
 import { useData } from '../context/DataContext'
 import { ApiError } from '../api/client'
+import MarkdownContent from './MarkdownContent'
 
 // A rendered chat turn: assistant messages may carry the actions the agent
 // performed so we can show them as chips beneath the reply.
@@ -102,13 +103,13 @@ export default function ChatPanel({ onClose, initialPrompt }: Props) {
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className="max-w-[88%] flex flex-col gap-2">
               <div
-                className={`text-sm leading-relaxed px-4 py-2.5 rounded-[var(--radius)] whitespace-pre-wrap ${
+                className={`text-sm leading-relaxed px-4 py-2.5 rounded-[var(--radius)] ${
                   m.role === 'user'
-                    ? 'bg-[var(--color-accent)] text-black font-medium'
+                    ? 'whitespace-pre-wrap bg-[var(--color-accent)] text-black font-medium'
                     : 'bg-[var(--color-surface-high)] text-[var(--color-text)] border border-[var(--color-border-high)]'
                 }`}
               >
-                {m.text}
+                {m.role === 'assistant' ? <MarkdownContent content={m.text} /> : m.text}
               </div>
               {m.actions?.map((a, j) => (
                 <span
