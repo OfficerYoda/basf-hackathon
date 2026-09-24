@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../context/DataContext'
 import { attachmentDownloadUrl } from '../api/articles'
 import ConfirmDialog from '../components/ConfirmDialog'
+import MarkdownContent from '../components/MarkdownContent'
 
 export default function ArticleDetail() {
   const { id } = useParams()
@@ -101,7 +102,7 @@ export default function ArticleDetail() {
 
           {article.content && (
             <div className="border-t border-[var(--color-border)] pt-4">
-              <p className="text-sm text-[var(--color-text)] leading-relaxed whitespace-pre-wrap">{article.content}</p>
+              <MarkdownContent content={article.content} />
             </div>
           )}
 
