@@ -54,7 +54,7 @@ export default function ArticleDetail() {
   }
 
   return (
-    <div className="p-5 max-w-2xl mx-auto">
+    <div className="p-5">
       <div className="flex items-center justify-between mb-5">
         <button
           onClick={() => navigate('/wissensbasis')}
